@@ -36,13 +36,20 @@ import os.path
 import collections
 
 import tempfile
-from urllib2 import urlopen
+import httplib
+import ssl
+from urlparse import urlparse
+import shutil
+
+import upd_version
 
 
 
-class PyInstallerUpdaterError(Exception):
+
+class Updater4PyiError(Exception):
     def __init__(self, msg):
-        self(PyInstallerUpdaterError, self).__init__('Software Updater: '+msg);
+        self.updater_msg = msg
+        self(PyInstallerUpdaterError, self).__init__('Software Updater Error: '+msg);
 
 
 
@@ -59,28 +66,76 @@ def get_update_interface():
 
 
 
-def install_update_checker(update_source, update_interface=None):
+def setup_updater(current_version, update_source, update_interface=None):
     """
     Installs an update checker, implemented by the source `update_source` (a
     `upd_source.UpdateSource` subclass instance), and the user interface
     `update_interface` (itself an `upd_iface.UpdateInterface` subclass instance).
+
+    The `current_version` is the current version string of the software, and will
+    be provided to the `udpate_source`.
     """
 
+    # sys._MEIPASS seems to be set all the time, even we don't self-extract.
     if (not hasattr(sys, '_MEIPASS')):
         raise PyInstallerUpdaterError("This installation is not built with pyinstaller.")
 
     if (update_interface is None):
-        from upd_iface import UpdateInterfaceConsole
-        update_interface = UpdateInterfaceConsole()
+        from upd_iface import UpdateConsoleInterface
+        update_interface = UpdateConsoleInterface()
         
     _update_source = update_source
     _update_interface = update_interface
+
+    _update_source.set_current_version(current_version)
+    _update_source.set_file_to_update(pyi_file_to_update())
 
     _update_interface.start(update_source)
 
 
 
 # -------------------------------
+
+CERT_FILE = os.path.join(os.path.dirname(__file__), 'root.pem');
+
+class ValidHTTPSConnection(httplib.HTTPConnection):
+    """
+    HTTPS connection based on httplib.HTTPConnection, with certificate validation.
+    """
+
+    default_port = httplib.HTTPS_PORT
+
+    def __init__(self, *args, **kwargs):
+        httplib.HTTPConnection.__init__(self, *args, **kwargs)
+
+    def connect(self):
+        """
+        Connect to a host on a given (SSL) port.
+        """
+        
+        sock = socket.create_connection((self.host, self.port),
+                                        self.timeout, self.source_address)
+        if self._tunnel_host:
+            self.sock = sock
+            self._tunnel()
+        self.sock = ssl.wrap_socket(sock,
+                                    ca_certs=CERT_FILE,
+                                    cert_reqs=ssl.CERT_REQUIRED)
+
+
+class ValidHTTPSHandler(urllib2.HTTPSHandler):
+
+    def https_open(self, req):
+            return self.do_open(ValidHTTPSConnection, req)
+
+
+url_opener = urllib2.build_opener(ValidHTTPSHandler)
+url_opener.addheaders = [('User-agent', 'Updater4Pyi-SoftwareUpdater %s'%(upd_version.version_str))]
+
+
+
+# --------------------------------
+
 
 
 
@@ -117,10 +172,109 @@ def pyi_file_to_update():
 
 
 
+def install_update(update_info):
 
-def install_update(update_info, needs_unzip=None ):
+    # first, save the file locally.
+    tmpfile = tempfile.NamedTemporaryFile(mode='w+b', prefix='upd4pyi_tmp_', dir=None, delete=False)
 
-    with urlopen(update_info.get_url()) as f:
-        if (needs_unzip):
-            # feed this directly into a zipfile handler
+    url = update_info.get_url();
+
+    try:
+        download_file(url, tmpfile)
+    except IOError as e: 
+        if hasattr(e, 'code'): # HTTPError 
+            raise Updater4PyiError('Got HTTP error: %d %s' %(e.code, e.reason))
+        elif hasattr(e, 'reason'): # URLError 
+            raise Updater4PyiError('Connection error: %s' %(e.reason))
+        else:
+            raise Updater4PyiError('Error: %s' %(str(e)))
+
+    # file is downloaded and on disk.
+
+    # now, determine what we have to update on disk.
+    filetoupdate = pyi_file_to_update()
+
+    # TODO: add support for download verifyer (MD5/SHA or GPG signature)
+    # ...
+
+    # move that file out of the way, but keep it as backup. So just rename it.
+    backupfilename = _backupname(filetoupdate.fn)
+    try:
+        os.rename(filetoupdate.fn, backupfilename);
+    except OSError as e:
+        raise Updater4PyiError("Failed to rename file %s!" %(str(e)))
+
+    def restorebackup():
+        try:
+            os.rename(backupfilename, filetoupdate.fn)
+        except OSError:
+            sys.stderr.write("WARNING: Failed to restore backup %s of %s!\n"
+                             % (backupfilename, filetoupdate.fn))
+            pass
+
+
+    try:
+        if (filetoupdate.is_dir):
+            # we are updating the directory itself. So make sure we download a ZIP file.
+            thezipfile = ZipFile(tmpfile.name, 'r')
+            # extract the ZIP file to our directory.
+
+            extractto = None
+            namelist = thezipfile.namelist()
+            (basedir, basefn) = os.path.split(filetoupdate.fn)
+            if ([True for x in namelist if not x.startswith(basefn)]):
+                # the zip file doesn't extract into a single dir--there are files with different prefixes.
+                # so extract into a single dir ourselves.
+                try:
+                    os.mkdir(filetoupdate.fn)
+                except OSError as e:
+                    raise Updater4PyiError("Failed to create directory %s!" %(filetoupdate.fn))
+
+                extractto = filetoupdate.fn
+            else:
+                extractto = basedir
+
+            thezipfile.extractall(extractto)
+            thezipfile.close()
+            
+            # remove the temporary downloaded file.
+            os.unlink(tmpfile)
+
+        else:
+            # following docs: these may be on different filesystems, and docs specify that os.rename()
+            # may fail in that case. So use shutil.move() which should work.
+            shutil.move(tmpfile.name, filetoupdate.fn)
+
+    except:
+        sys.stderr.write("Software Update Error: %s\n" %(str(sys.exc_info()[1])));
+        restorebackup()
+        raise
+
+    # remove the backup.
+    #if (filetoupdate.is_dir):
+    #    shutil.rmtree(backupfilename)
+    #else
+    #    os.unlink(backupfilename)
     
+    
+
+def _backupname(filename):
+    try_suffix = '.bkp'
+    while (n < 999 and os.path.exists(filename+try_suffix)):
+        try_suffix = '.'+str(n)+'.bkp'
+        n += 1;
+    if (os.path.exists(filename+try_suffix)):
+        raise Updater4PyiError("Can't figure out a backup name for file %s!!" %(filename))
+    return filename+try_suffix;
+
+
+
+
+
+def download_file(theurl, fdst):
+
+    with url_opener.open(update_info.get_url()) as fdata:
+        shutil.copyfileobj(fdata, fdst)
+
+    fdst.close()
+

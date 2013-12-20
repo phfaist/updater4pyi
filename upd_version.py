@@ -30,23 +30,5 @@
 #######################################################################################
 
 
-
-#
-# NOTE: NOT YET IMPLEMENTED. THIS IS JUST A NON-FUNCTIONAL STUB FILE.
-#
-
-
-class UpdateSignatureVerifyer(object):
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def verify(self, update_info, fn):
-        raise NotImplementedError
-
-
-
-
-class UpdateNoSignatureVerifyer(UpdateSignatureVerifyer):
-    def verify(self, update_info, fn):
-        return True
+version_str = '0.1'
 

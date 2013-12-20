@@ -29,24 +29,20 @@
 #                                                                                     #
 #######################################################################################
 
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
 
 
-#
-# NOTE: NOT YET IMPLEMENTED. THIS IS JUST A NON-FUNCTIONAL STUB FILE.
-#
 
-
-class UpdateSignatureVerifyer(object):
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def verify(self, update_info, fn):
-        raise NotImplementedError
+import upd_core
+from upd_source import UpdateInfo, UpdateSource
+from upd_iface import UpdateInterface
 
 
 
 
-class UpdateNoSignatureVerifyer(UpdateSignatureVerifyer):
-    def verify(self, update_info, fn):
-        return True
-
+class UpdatePyQt4Interface(QObject,UpdateInterface):
+    def __init__(self, parent=None):
+        super(UpdatePyQt4Interface, self).__init__(parent=parent)
+    
+    ...
