@@ -30,9 +30,9 @@
 #######################################################################################
 
 import re
+import sys
 
 import upd_core
-from upd_source import UpdateInfo, UpdateSource
 
 
 
@@ -40,7 +40,7 @@ class UpdateInterface(object):
     def __init__(self, *args, **pwargs):
         pass
 
-    def start(self, update_source):
+    def start(self, **kwargs):
         """
         Start being aware of wanting to check for updates. It is up to the interface
         to decide when to check for updates, how often, etc. For example, a console
@@ -58,15 +58,23 @@ class UpdateInterface(object):
 
 
 class UpdateConsoleInterface(UpdateInterface):
-    def __init__(self, *args, **pwargs):
-        super(UpdateConsoleInteface, self).__init__(self, *args, **kwargs)
+    def __init__(self, ask_before_checking=False, *args, **kwargs):
+        super(UpdateConsoleInterface, self).__init__(self, *args, **kwargs)
+        self.ask_before_checking = ask_before_checking
 
-    def start(self, update_source):
+    def start(self):
 
         #
+        # See if we should ask before checking.
+        #
+        if (self.ask_before_checking):
+            if (not self._ynprompt("Do you wish to check for software updates? (y/n) ")):
+                return
+            
+        #
         # Check for updates.
-        # 
-        upd_info = update_source.check_for_updates()
+        #
+        upd_info = upd_core.check_for_updates()
 
         if (upd_info is None):
             # no updates.
@@ -82,9 +90,7 @@ class UpdateConsoleInterface(UpdateInterface):
         print "A new software update is available (version %s)" %(upd_info.version)
         print ""
 
-        yn = raw_input("Do you want to install it? (y/n)")
-
-        if (re.match(r'\s*y(es)?\s*', yn, re.IGNORECASE)):
+        if (self._ynprompt("Do you want to install it? (y/n) ")):
             #
             # yes, install update
             #
@@ -93,10 +99,11 @@ class UpdateConsoleInterface(UpdateInterface):
             # update installed.
             #
             print ""
-            print "Update installed. Please restart the program."
+            print "Update installed. Quitting. Please restart the program."
             print ""
             print "-----------------------------------------------------------"
             print ""
+            sys.exit(0)
         else:
             print ""
             print "Not installing update."
@@ -107,6 +114,8 @@ class UpdateConsoleInterface(UpdateInterface):
         # return to the main program.
         return
         
-
+    def _ynprompt(self, msg):
+        yn = raw_input(msg)
+        return re.match(r'\s*y(es)?\s*', yn, re.IGNORECASE) is not None
 
 

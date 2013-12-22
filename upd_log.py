@@ -29,20 +29,32 @@
 #                                                                                     #
 #######################################################################################
 
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
+
+import logging
+
+
+# the logger
+logger = logging.getLogger('updater4pyi');
+
+# the formatter
+formatter = logging.Formatter('%(name)s - %(asctime)-15s %(levelname)s:\n\t%(message)s');
 
 
 
-import upd_core
-from upd_source import BinReleaseInfo, UpdateSource
-from upd_iface import UpdateInterface
-
-
-
-
-class UpdatePyQt4Interface(QObject,UpdateInterface):
-    def __init__(self, parent=None):
-        super(UpdatePyQt4Interface, self).__init__(parent=parent)
+def setup_logger(level=logging.INFO):
     
-    ...
+    # create console handler
+    ch = logging.StreamHandler();
+    ch.setLevel(logging.NOTSET); # propagate all messages
+    
+    # add the formatter to the handler
+    ch.setFormatter(formatter);
+    
+    # add the handlers to the logger
+    logger.addHandler(ch);
+
+    # set the logger's level
+    logger.setLevel(level);
+
+    logger.debug("logger set up. level=%d", level)
+    
