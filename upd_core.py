@@ -45,6 +45,7 @@ import glob
 import tempfile
 import httplib
 import ssl
+import socket
 from urlparse import urlparse
 import shutil
 import urllib2
@@ -65,7 +66,27 @@ class Updater4PyiError(Exception):
 
 
 
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------
+
+# utility
+
+def resource_path(relative_path):
+    """
+    Get absolute path to resource, works for dev and for PyInstaller
+    """
+    def base_path():
+        try:
+            return sys._MEIPASS
+        except AttributeError:
+            pass
+        mainfn = inspect.stack()[-1][1]
+        return os.path.abspath(os.path.dirname(mainfn))
+
+    return os.path.join(base_path(), relative_path)
+
+
+
+# ------------------------------------------------------------------------
 
 _update_source = None
 _update_interface = None
@@ -123,7 +144,7 @@ def setup_updater(current_version, update_source, update_interface=None):
 
 # -------------------------------
 
-CERT_FILE = os.path.join(os.path.dirname(__file__), 'root.pem');
+CERT_FILE = resource_path('updater4pyi/cacert.pem');#'root.crt');
 
 class ValidHTTPSConnection(httplib.HTTPConnection):
     """
@@ -139,6 +160,8 @@ class ValidHTTPSConnection(httplib.HTTPConnection):
         """
         Connect to a host on a given (SSL) port.
         """
+
+        logger.debug("Connecting via HTTPS to %s:%d.", self.host, self.port)
         
         sock = socket.create_connection((self.host, self.port),
                                         self.timeout, self.source_address)
@@ -156,13 +179,13 @@ class ValidHTTPSHandler(urllib2.HTTPSHandler):
             return self.do_open(ValidHTTPSConnection, req)
 
 
+
 url_opener = urllib2.build_opener(ValidHTTPSHandler)
 url_opener.addheaders = [('User-agent', 'Updater4Pyi-SoftwareUpdater %s'%(upd_version.version_str))]
 
 
 
 # --------------------------------
-
 
 
 FileToUpdate = collections.namedtuple('FileToUpdate', ('fn', 'reltype', 'executable',));
@@ -177,17 +200,23 @@ def determine_file_to_update():
     updatefile = os.path.realpath(sys.executable)
     reltype = None
 
+    logger.debug("trying to determine pyi executable to update. sys.executable=%s; sys._MEIPASS=%s",
+                 sys.executable, (sys._MEIPASS if hasattr(sys, '_MEIPASS') else '<no sys._MEIPASS>'))
+
     if (sys.platform.startswith('darwin')):
-        logger.debug("platform is Mac OS X")
         # see if we are a Mac OS X bundle
         (alllastdir,fn) = os.path.split(sys.executable);
-        (beforelastdir,lastdir) = os.path.split(alllastdir);
+        (allbeforelastdir,lastdir) = os.path.split(alllastdir);
+        (allbeforebeforelastdir,beforelastdir) = os.path.split(allbeforelastdir);
+
+        logger.debug("platform is Mac OS X; alllastdir=%s, beforelastdir=%s, lastdir=%s, fn=%s",
+                     alllastdir, beforelastdir, lastdir, fn)
 
         if (lastdir == 'MacOS' and beforelastdir == 'Contents'):
             # we're in a Mac OS X bundle, so the actual "executable" should point to the .app file
             reltype = upd_source.RELTYPE_BUNDLE_ARCHIVE
-            (updatefile,junk) = os.path.split(beforelastdir);
-            logger.debug("We're a bundle")
+            updatefile = allbeforebeforelastdir
+            logger.debug("We're a bundle: updatefile=%s", updatefile)
 
     if reltype is None:
         # if we're not already a bundle, check whether we're a directory to update
@@ -234,7 +263,6 @@ def simple_platform():
         return 'linux'
     else:
         return sys.platform
-
 
 
 # -------------------------------------------
@@ -393,9 +421,15 @@ def install_update(rel_info):
                     except ValueError as e:
                         logger.warning("Invalid JSON data in metainf file _updater4pyi_metainf.json: %s" %(str(e)))
 
-                thezipfile.extractall(extractto, [x for x in thezipfile.namelist() if x not in SPECIAL_ZIP_FILES])
+                # iterate over files to extract with executable permissions set.
+                for zinfo in thezipfile.infolist():
+                    if zinfo.filename in SPECIAL_ZIP_FILES:
+                        continue
+                    thezipfile.extract(zinfo, extractto)
+                    os.chmod(os.path.join(extractto, zinfo.filename), 0755) # make executable
                 thezipfile.close()
 
+                # override some permissions with a special metainfo file.
                 if permdata and 'permissions' in permdata:
                     for (pattern,perm) in permdata['permissions'].iteritems():
                         logger.debug("pattern: %s to perms=%s" %(pattern, perm))
@@ -473,6 +507,8 @@ def _backupname(filename):
 
 
 def download_file(theurl, fdst):
+
+    global url_opener
 
     logger.debug("fetching URL %s to temp file %s ..." %(theurl, _noexcept(lambda : fdst.name)))
 

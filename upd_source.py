@@ -36,6 +36,7 @@ import os
 import os.path
 import logging
 import copy
+import json
 
 import upd_core
 
@@ -82,7 +83,16 @@ class BinReleaseInfo(object):
     def get_platform(self):
         return self.platform
 
+    def __repr__(self):
+        return (self.__class__.__name__+'('+
+                ", ".join([ '%s=%r' % (k,v)
+                            for (k,v) in self.__dict__.iteritems() ]) +
+                ')')
 
+
+
+
+# --------------------------------------------------------------
 
 
 
@@ -112,14 +122,7 @@ class UpdateSource(object):
 
 
 
-#
-# UpdateInfoFromNameRegexpStrategy(
-#     (relpattern(r'-macosx-app\.zip$', reltype=RELTYPE_BUNDLE_ARCHIVE, platform='macosx'),
-#      relpattern(r'-(?P<platform>linux|win|macosx)\.zip$', reltype=RELTYPE_ARCHIVE, platform='macosx'),
-#      relpattern(r'-linux.bin$', reltype=RELTYPE_EXE, platform='linux'),
-#      relpattern(r'-win32.exe$', reltype=RELTYPE_EXE, platform='win'),
-#     ) )
-#
+# ---------------------------------------------------------------------------
 
 class IgnoreArgument:
     pass
@@ -170,7 +173,7 @@ class ReleaseInfoFromNameStrategy(object):
     `UpdateGithubRelasesSource`.
     """
     def __init__(self, patterns, *args, **kwargs):
-        self.patterns = patterns
+        self.patterns = [(_maybe_compile_re(r), cal) for (r, cal) in patterns]
         super(ReleaseInfoFromNameStrategy, self).__init__(*args, **kwargs)
 
     def get_release_info(self, filename, url, **kwargs):
@@ -182,23 +185,51 @@ class ReleaseInfoFromNameStrategy(object):
             if m is None:
                 continue
 
-            return cal(m, filename, url, **kwargs)
+            rinfo = cal(m, filename, url, **kwargs)
+            logger.debug("Got release info: %r", rinfo)
+            return rinfo
 
         logger.warning("Can't identify info for release file named %s!" %(filename))
         return None
-    
 
-_default_naming_strategy = (
-    relpattern(r'(?P<version>-[\w]+)?-macosx-app\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+def _maybe_compile_re(r, flags=re.IGNORECASE):
+    if (isinstance(r, type(re.compile('')))):
+        return r
+    return re.compile(r, flags)
+
+
+_RX_VER = r'(-(?P<version>[\w]+))?'
+_RX_PLAT = r'-(?P<platform>macosx|linux|win)'
+
+_default_naming_strategy_patterns = (
+    relpattern(_RX_VER+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
                platform='macosx', reltype=RELTYPE_BUNDLE_ARCHIVE),
-    relpattern(r'(?P<version>-[\w]+)?-(?P<platform>macosx|linux|win)\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+    relpattern(_RX_VER+_RX_PLAT+r'(-onedir)?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform'), reltype=RELTYPE_ARCHIVE),
-    relpattern(r'(?P<version>-[\w]+)?-(?P<platform>macosx|linux|win)(\.(exe|bin|run))?$',
+               platform=lambda m: m.group('platform').lower(), reltype=RELTYPE_ARCHIVE),
+    relpattern(_RX_VER+_RX_PLAT+r'(\.(exe|bin|run))?$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform'), reltype=RELTYPE_EXE),
+               platform=lambda m: m.group('platform').lower(), reltype=RELTYPE_EXE),
     )
+
+# maybe e.g.
+# UpdateInfoFromNameRegexpStrategy(
+#     (relpattern(r'-macosx-app\.zip$', reltype=RELTYPE_BUNDLE_ARCHIVE, platform='macosx'),
+#      relpattern(r'-(?P<platform>linux|win|macosx)\.zip$', reltype=RELTYPE_ARCHIVE, platform='macosx'),
+#      relpattern(r'-linux.bin$', reltype=RELTYPE_EXE, platform='linux'),
+#      relpattern(r'-win32.exe$', reltype=RELTYPE_EXE, platform='win'),
+#     ) )
+#
+
+
+
+
+
+
+
+
+# -------------------------------------------------------
 
 
 class UpdateLocalDirectorySource(UpdateSource):
@@ -209,7 +240,7 @@ class UpdateLocalDirectorySource(UpdateSource):
     def __init__(self, source_directory, naming_strategy=None, *args, **kwargs):
 
         if (naming_strategy is None):
-            naming_strategy = _default_naming_strategy
+            naming_strategy = _default_naming_strategy_patterns
         if (not isinstance(naming_strategy, ReleaseInfoFromNameStrategy)):
             naming_strategy = ReleaseInfoFromNameStrategy(naming_strategy)
 
@@ -272,6 +303,113 @@ class UpdateLocalDirectorySource(UpdateSource):
 
 
 
+
+# -----------------------------------------------------------------
+
+
+# github releases source
+
+
+
+class UpdateGithubReleasesSource(UpdateSource):
+    """
+    Updates will be searched for in as releases of a github repo.
+    """
+    
+    def __init__(self, github_user_repo, naming_strategy=None, *args, **kwargs):
+        """
+        `github_user_repo` is a string literal `'user/repo_name'`, e.g. `'phfaist/bibolamazi'`.
+        """
+
+        if (naming_strategy is None):
+            naming_strategy = _default_naming_strategy_patterns
+        if (not isinstance(naming_strategy, ReleaseInfoFromNameStrategy)):
+            naming_strategy = ReleaseInfoFromNameStrategy(naming_strategy)
+
+        self.naming_strategy = naming_strategy
+        self.github_user_repo = github_user_repo
+
+        super(UpdateGithubReleasesSource, self).__init__(*args, **kwargs)
+
+
+    def get_releases(self, newer_than_version=None, **kwargs):
+
+        # get repo releases.
+
+        url = 'https://api.github.com/repos/'+self.github_user_repo+'/releases'
+
+        try:
+            fdata = upd_core.url_opener.open(url)
+        except OSError:
+            logger.warning("Can't connect to github for software update check.")
+            return None
+        
+        try:
+            data = json.load(fdata);
+        except ValueError:
+            logger.warning("Unable to parse data returned by github at %s!", url)
+            return None
+
+        if (not isinstance(data, list)):
+            logger.warning("Expected list response from github: %r", data)
+            return None
+
+        newer_than_version_parsed = None
+        if (newer_than_version is not None):
+            newer_than_version_parsed = upd_core.parse_version(newer_than_version)
+
+        inf_list = []
+        
+        for relinfo in data:
+            html_url = relinfo.get('html_url', None)
+            tag_name = relinfo.get('tag_name', None)
+            rel_name = relinfo.get('name', '<unknown>')
+            rel_desc = relinfo.get('body', None)
+            rel_date = relinfo.get('published_at', None)
+            
+            # release version from tag name
+            # strip starting 'v' if present
+            relver = '0.0-unknown'
+            if tag_name:
+                relver = (tag_name[1:] if tag_name[0] == 'v' else tag_name)
+
+            if (newer_than_version_parsed is not None and
+                upd_core.parse_version(relver) <= newer_than_version_parsed):
+                logger.debug("Version %s is not strictly newer than %s, skipping...", relver, newer_than_version)
+                continue
+                
+            relfiles = relinfo.get('assets', {})
+            for relfile in relfiles:
+
+                relfn = relfile.get('name', None)
+                rellabel = relfile.get('label', None)
+                relcontenttype = relfile.get('content_type', None)
+                # build up the download URL
+                relurl = 'https://github.com/'+self.github_user_repo+'/releases/download/'+tag_name+'/'+relfn;
+
+                inf_list.append(
+                    self.naming_strategy.get_release_info(filename=relfn,
+                                                          url=relurl,
+                                                          version=relver,
+                                                          # additional info:
+                                                          rel_name=rel_name,
+                                                          relfile_label=rellabel,
+                                                          rel_description=rel_desc,
+                                                          relfile_content_type=relcontenttype,
+                                                          rel_tag_name=tag_name,
+                                                          rel_html_url=html_url,
+                                                          )
+                    )
+
+        # debug: list found versions
+        logger.debug("Found releases:\n"+
+                     "\n".join(["\t* %s, %s (%r)" %(r.get_filename(), r.get_version(), r.__dict__)
+                                for r in inf_list])
+                     )
+        
+        # return the list of releases
+        return inf_list
+    
 
 
 

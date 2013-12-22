@@ -59,15 +59,29 @@ def restart_app(exe=None):
     if (exe is None):
         exe = upd_core.file_to_update().executable
 
-    if (upd_core.is_macosx() or upd_core.is_linux()):
+    if upd_core.is_macosx() or upd_core.is_linux():
         this_pid = os.getpid()
         subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; %s"
                          %(this_pid, _bash_quote(exe)),
                          shell=True)
-        sys.exit(0);
+        sys.exit(0)
+        
+    elif upd_core.is_win():
+        # TODO: write me! sth like the following, but this needs testing:
+        #subprocess.Popen("%s" %(_batch_quote(exe)),
+        #                 shell=False)
+        #sys.exit(0)
+        raise NotImplementedError
+
+    else:
+        logger.warning("I don't know about your platform. You'll have to restart this "
+                       "program by yourself like a grown-up. I'm exiting now! Have fun.")
+        sys.exit(0)
 
 def _bash_quote(x):
     return "'" + x.replace("'", "'\\''") + "'"
+def _batch_quote(x):
+    return '"' + x + '"'
 
 
 
