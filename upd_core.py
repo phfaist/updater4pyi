@@ -165,15 +165,16 @@ url_opener.addheaders = [('User-agent', 'Updater4Pyi-SoftwareUpdater %s'%(upd_ve
 
 
 
-FileToUpdate = collections.namedtuple('FileToUpdate', ('fn', 'reltype',));
+FileToUpdate = collections.namedtuple('FileToUpdate', ('fn', 'reltype', 'executable',));
 
 
 def determine_file_to_update():
     """
-    Returns a FileToUpdate(fn=.., reltype=..) named tuple.
+    Returns a FileToUpdate(fn=.., reltype=.., executable=...) named tuple.
     """
     
-    updatefile = os.path.realpath(sys.executable);
+    executable = sys.executable
+    updatefile = os.path.realpath(sys.executable)
     reltype = None
 
     if (sys.platform.startswith('darwin')):
@@ -202,9 +203,10 @@ def determine_file_to_update():
         reltype = upd_source.RELTYPE_EXE
 
 
-    logger.debug("got FileToUpdate(fn=%r, reltype=%d)" %(updatefile, reltype))
+    logger.debug("got FileToUpdate(fn=%r, reltype=%d, executable=%s)",
+                 updatefile, reltype, executable)
 
-    return FileToUpdate(fn=updatefile, reltype=reltype)
+    return FileToUpdate(fn=updatefile, reltype=reltype, executable=executable)
 
 
 

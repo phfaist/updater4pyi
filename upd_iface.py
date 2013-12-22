@@ -31,6 +31,9 @@
 
 import re
 import sys
+import os
+import os.path
+import subprocess
 
 import upd_core
 
@@ -52,8 +55,19 @@ class UpdateInterface(object):
     
 
 
+def restart_app(exe=None):
+    if (exe is None):
+        exe = upd_core.file_to_update().executable
 
+    if (upd_core.is_macosx() or upd_core.is_linux()):
+        this_pid = os.getpid()
+        subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; %s"
+                         %(this_pid, _bash_quote(exe)),
+                         shell=True)
+        sys.exit(0);
 
+def _bash_quote(x):
+    return "'" + x.replace("'", "'\\''") + "'"
 
 
 
