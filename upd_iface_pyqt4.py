@@ -53,6 +53,8 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
         self.init_check_delay = init_check_delay
         self.check_interval = check_interval
 
+        self.update_installed = False
+
         self.timer = None
         self.is_initial_delay = None
         super(UpdatePyQt4Interface, self).__init__(parent=parent)
@@ -75,6 +77,10 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
     @pyqtSlot()
     def slotTimeout(self):
         logger.debug("pyqt4 interface: slotTimeout()")
+
+        if (self.update_installed):
+            logger.warning("We have already installed an update and pending restart.")
+            return
         
         try:
             # check for updates
@@ -94,6 +100,7 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
                 # yes, install update
                 #
                 upd_core.install_update(rel_info)
+                self.update_installed = True
                 #
                 # update installed.
                 #
@@ -111,9 +118,11 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
         finally:
             # configure the timer to tick in check_interval milliseconds from now.
             self.is_initial_delay = False # also, we're no longer in the first initial delay.
-            self.timer.setSingleShot(True)
-            self.timer.setInterval(self.check_interval)
-            self.timer.start()
+            # only if we didn't just install an update and postponed restart
+            if not self.update_installed:
+                self.timer.setSingleShot(True)
+                self.timer.setInterval(self.check_interval)
+                self.timer.start()
 
 
 

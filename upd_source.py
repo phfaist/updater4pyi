@@ -37,6 +37,7 @@ import os.path
 import logging
 import copy
 import json
+import inspect
 
 import upd_core
 
@@ -127,19 +128,28 @@ class UpdateSource(object):
 class IgnoreArgument:
     pass
 
-def _make_bin_release_info(m, lst):
+def _make_bin_release_info(m, lst, innerkwargs):
 
     logger.debug("make_bin_release_info: lst=%r", lst)
 
     args = {}
-    for k,v in lst:
+    for k,v in lst+innerkwargs.items():
         val = None
-        try:
-            val = v(m=m)
-        except TypeError:
+        if (type(v).__name__ == 'function'):
+            argspec = inspect.getargspec(v)
+            valargs = {}
+            if ('m' in argspec.args or argspec.keywords is not None):
+                valargs['m'] = m;
+            if ('d' in argspec.args or argspec.keywords is not None):
+                valargs['d'] = innerkwargs;
+
+            val = v(**valargs)
+        else:
             val = v
+            
         if (isinstance(val, IgnoreArgument)):
             continue
+        
         args[k] = val
 
     logger.debug("make_bin_release_info: final args=%r", args)
@@ -153,13 +163,13 @@ def relpattern(re_pattern, reltype=RELTYPE_UNKNOWN, platform=None, **kwargs):
             (lambda m, filename, url, version=None,
              _fix_plat=platform, _fix_rtyp=reltype, _fix_kwargs=copy.deepcopy(kwargs), **innerkwargs:
              _make_bin_release_info(m,
-                                    [('version',version)] +
+                                    [ ('version',version) ] +
                                     _fix_kwargs.items() +
-                                    [('filename', filename),
-                                     ('url', url),
-                                     ('platform',_fix_plat),
-                                     ('reltype',_fix_rtyp)] +
-                                    innerkwargs.items()
+                                    [ ('filename', filename),
+                                      ('url', url),
+                                      ('platform',_fix_plat),
+                                      ('reltype',_fix_rtyp) ],
+                                    innerkwargs
                                     )
              )
             )

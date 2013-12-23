@@ -81,7 +81,8 @@ def restart_app(exe=None):
 def _bash_quote(x):
     return "'" + x.replace("'", "'\\''") + "'"
 def _batch_quote(x):
-    return '"' + x + '"'
+    raise NotImplementedError
+    #return '"' + x.replace(...) + '"'
 
 
 
