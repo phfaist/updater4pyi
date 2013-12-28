@@ -30,6 +30,7 @@
 #######################################################################################
 
 import logging
+import datetime
 
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
@@ -41,89 +42,45 @@ logger = logging.getLogger('updater4pyi')
 
 
 
-# initial check by default 1 minute after app startup
-DEFAULT_INIT_CHECK_DELAY = 60*1000
-# subsequent checks every 6 hours by default
-DEFAULT_CHECK_INTERVAL = 6*60*60*1000
 
-
-class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
-    def __init__(self, init_check_delay=DEFAULT_INIT_CHECK_DELAY, check_interval=DEFAULT_CHECK_INTERVAL,
-                 parent=None):
-        self.init_check_delay = init_check_delay
-        self.check_interval = check_interval
-
-        self.update_installed = False
-
+class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
+    def __init__(self, parent=None):
         self.timer = None
-        self.is_initial_delay = None
-        super(UpdatePyQt4Interface, self).__init__(parent=parent)
+        
+        QObject.__init__(self, parent=parent)
         # super doesn't propagate out of the Qt multiple inheritance...
-        upd_iface.UpdateInterface.__init__(self)
-    
-    def start(self):
-        logger.debug("Starting interface (pyqt4)")
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.slotTimeout)
-
-        self.is_initial_delay = True
-        self.timer.setSingleShot(True)
-        self.timer.setInterval(self.init_check_delay)
-        self.timer.start()
-
-        logger.debug("single-shot timer started with interval=%d" %(self.init_check_delay))
+        upd_iface.UpdateGenericGuiInterface.__init__(self)
 
 
-    @pyqtSlot()
-    def slotTimeout(self):
-        logger.debug("pyqt4 interface: slotTimeout()")
+    # ------------
 
-        if (self.update_installed):
-            logger.warning("We have already installed an update and pending restart.")
-            return
-        
-        try:
-            # check for updates
+    def get_settings_object(self):
+        """
+        Subclasses may reimplement this function to cusomize where the settings are stored.
+        """
+        settings = QSettings()
+        settings.beginGroup('updater4pyi')
+        return settings
 
-            rel_info = upd_core.check_for_updates()
+    def load_settings(self, keylist):
+        settings = self.get_settings_object()
+        d = {}
+        for key in keylist:
+            if settings.contains(key):
+                d[key] = settings.value(key).toPyObject()
 
-            if (rel_info is None):
-                # no updates.
-                logger.debug("upd_iface_pyqt4: No updates available.")
-                return
+        logger.debug("load_settings: read settings: %r", d)
+        return d
 
-            #
-            # There's an update, prompt the user.
-            #
-            if self.ask_to_update(rel_info):
-                #
-                # yes, install update
-                #
-                upd_core.install_update(rel_info)
-                self.update_installed = True
-                #
-                # update installed.
-                #
-                if self.ask_to_restart():
-                    upd_iface.restart_app()
-                    return
+    def save_settings(self, d=None):
+        if d is None:
+            d = self.all_settings()
 
-            else:
-                logger.debug("Not installing update.")
+        logger.debug("save_settings: saving settings: %r", d)
 
-
-            # return to the main program.
-            return
-        
-        finally:
-            # configure the timer to tick in check_interval milliseconds from now.
-            self.is_initial_delay = False # also, we're no longer in the first initial delay.
-            # only if we didn't just install an update and postponed restart
-            if not self.update_installed:
-                self.timer.setSingleShot(True)
-                self.timer.setInterval(self.check_interval)
-                self.timer.start()
-
+        settings = self.get_settings_object()
+        for k,v in d.iteritems():
+            settings.setValue(k, QVariant(v))
 
 
     def ask_to_update(self, rel_info):
@@ -143,3 +100,20 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateInterface):
                                        QMessageBox.Yes|QMessageBox.No, QMessageBox.Yes)
         return resp == QMessageBox.Yes
         
+        
+    def set_timeout_check(self, interval_timedelta):
+
+        # interval in milliseconds
+        interval_ms = int(interval_timedelta.total_seconds()*1000)
+        
+        if self.timer is None:
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.check_for_updates)
+            self.timer.setSingleShot(True)
+        elif self.timer.isActive():
+            self.timer.stop()
+
+        self.timer.setInterval(interval_ms)
+        self.timer.start()
+        logger.debug("single-shot timer started with interval=%d ms", interval_ms)
+

@@ -38,6 +38,7 @@ import logging
 import copy
 import json
 import inspect
+import urllib2
 
 import upd_core
 
@@ -350,14 +351,18 @@ class UpdateGithubReleasesSource(UpdateSource):
 
         try:
             fdata = upd_core.url_opener.open(url)
-        except OSError:
+        except urllib2.URLError:
             logger.warning("Can't connect to github for software update check.")
             return None
-        
+
         try:
             data = json.load(fdata);
         except ValueError:
             logger.warning("Unable to parse data returned by github at %s!", url)
+            return None
+
+        if (isinstance(data, dict)):
+            logger.warning("Error: %s" %(data.get('message', '<no message provided>')))
             return None
 
         if (not isinstance(data, list)):

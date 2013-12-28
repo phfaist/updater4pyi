@@ -37,7 +37,7 @@ import logging
 logger = logging.getLogger('updater4pyi');
 
 # the formatter
-formatter = logging.Formatter('%(name)s - %(asctime)-15s %(levelname)s:\n\t%(message)s');
+formatter = logging.Formatter('%(name)s - %(asctime)-15s\n\t%(levelname)s: %(message)s');
 
 
 

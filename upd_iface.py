@@ -34,9 +34,12 @@ import sys
 import os
 import os.path
 import subprocess
+import datetime
+import logging
 
 import upd_core
 
+logger = logging.getLogger('updater4pyi')
 
 
 class UpdateInterface(object):
@@ -52,7 +55,12 @@ class UpdateInterface(object):
         check.
         """
         raise NotImplementedError
-    
+
+
+
+# ---------------------------------------------------------------
+
+# utilities
 
 
 def restart_app(exe=None):
@@ -83,6 +91,80 @@ def _bash_quote(x):
 def _batch_quote(x):
     raise NotImplementedError
     #return '"' + x.replace(...) + '"'
+
+
+
+
+_TIMEDELTA_RX = r'''(?xi)
+    (?P<num>\d+)\s*
+    (?P<unit>
+        y(ears?)?|
+        mon(ths?)?|
+        weeks?|
+        days?|
+        hours?|
+        min(utes?)?|
+        s(ec(onds?)?)?
+    )
+    (,\s*)?
+    ''';
+_timedelta_units = {'y':    datetime.timedelta(days=365,seconds=0, microseconds=0),
+                    'mon':  datetime.timedelta(days=30, seconds=0, microseconds=0),
+                    'week': datetime.timedelta(days=7,  seconds=0, microseconds=0),
+                    'day':  datetime.timedelta(days=1,  seconds=0, microseconds=0),
+                    'hour': datetime.timedelta(days=0,  seconds=3600, microseconds=0),
+                    'min':  datetime.timedelta(days=0,  seconds=60, microseconds=0),
+                    's':    datetime.timedelta(days=0,  seconds=1, microseconds=0),
+                    }
+
+def ensure_timedelta(x):
+    if isinstance(x, datetime.timedelta):
+        return x
+    
+    if isinstance(x, basestring):
+        val = datetime.timedelta(0)
+        for m in re.finditer(_TIMEDELTA_RX, x):
+            thisvallst = [ v for k,v in _timedelta_units.iteritems()
+                           if k.lower().startswith(m.group('unit')) ]
+            if not thisvallst: raise ValueError("Unexpected unit: %s" %(m.group('unit')))
+            val += int(m.group('num')) * thisvallst[0]
+        return val
+
+    try:
+        sec = int(x)
+        musec = (x-int(x))*1e6
+        return datetime.timedelta(0, sec, musec)
+    except ValueError:
+        pass
+    
+    raise ValueError("Unable to parse timedelta representation: %r" %(x))
+
+
+def ensure_datetime(x):
+    if isinstance(x, datetime.datetime):
+        return x
+
+    if isinstance(x, basestring):
+        try:
+            import dateutil.parser
+            return dateutil.parser.parse(x)
+        except ImportError:
+            pass
+
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f',
+                    '%Y-%m-%dT%H:%M:%S',
+                    ):
+            try:
+                return datetime.strptime(x, fmt)
+            except ValueError:
+                pass
+        raise ValueError("Can't parse date/time : %s" %(x))
+
+    raise ValueError("Can't parse date/time: unknown type: %r" %(x))
+        
+
+# -----------
+
 
 
 
@@ -146,5 +228,215 @@ class UpdateConsoleInterface(UpdateInterface):
     def _ynprompt(self, msg):
         yn = raw_input(msg)
         return re.match(r'\s*y(es)?\s*', yn, re.IGNORECASE) is not None
+
+
+
+
+# ---------------------------------------------------------------------
+
+
+# initial check by default 1 minute after app startup, so as not to slow down app startup.
+DEFAULT_INIT_CHECK_DELAY = datetime.timedelta(days=0, seconds=60, microseconds=0)
+# subsequent checks every week by default
+DEFAULT_CHECK_INTERVAL = datetime.timedelta(days=7, seconds=0, microseconds=0)
+
+
+_SETTINGS_ALL = ['check_for_updates_enabled', 'init_check_delay', 'check_interval',
+                 'last_check']
+
+class UpdateGenericGuiInterface(UpdateInterface):
+    def __init__(self, *args, **kwargs):
+        
+        self.update_installed = False
+        self.is_initial_delay = True
+
+        # load settings
+        d = self.load_settings(_SETTINGS_ALL)
+        self.init_check_delay = ensure_timedelta(d.get('init_check_delay', DEFAULT_INIT_CHECK_DELAY))
+        self.check_interval = ensure_timedelta(d.get('check_interval', DEFAULT_CHECK_INTERVAL))
+        self.check_for_updates_enabled = d.get('check_for_updates_enabled', True)
+        self.last_check = ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
+        
+        super(UpdateGenericGuiInterface, self).__init__(*args, **kwargs)
+
+    
+    def start(self):
+        logger.debug("Starting interface (generic gui)")
+        self.schedule_next_update_check()
+
+
+    # properties
+
+    def initCheckDelay(self):
+        return self.init_check_delay
+
+    def setInitCheckDelay(self, init_check_delay, save=True):
+        self.init_check_delay = ensure_timedelta(init_check_delay)
+        if save: self.save_settings({'init_check_delay': self.init_check_delay})
+
+    def checkInterval(self):
+        return self.check_interval
+
+    def setCheckInterval(self, check_interval, save=True):
+        self.check_interval = ensure_timedelta(check_interval)
+        if save: self.save_settings({'check_interval': self.check_interval})
+
+    def checkForUpdatesEnabled(self):
+        return self.check_for_updates_enabled
+
+    def setCheckForUpdatesEnabled(self, enabled, save=True):
+        self.check_for_updates_enabled = enabled
+        # save setting to settings file
+        if save: self.save_settings({'check_for_updates_enabled': self.check_for_updates_enabled})
+
+    def lastCheck(self):
+        return self.last_check
+
+    def setLastCheck(self, last_check, save=True):
+        self.last_check = ensure_datetime(last_check)
+        if save: self.save_settings({'last_check': self.last_check})
+
+    # ------------
+
+    def all_settings(self):
+        """
+        Utility to get all settings. Useful for subclasses; this doesn't need to be reimplemented.
+        """
+        return dict([(k,getattr(self,k)) for k in _SETTINGS_ALL])
+
+    # ----------------------------------------------
+
+    def check_for_updates(self):
+        """
+        Actually perform the update check. You don't have to reimplement this function, the default
+        implementation should be good enough and relies on your implementations of `ask_to_update()`
+        and `ask_to_restart()`.
+        """
+        logger.debug("UpdateGenericGuiInterface: check_for_updates()")
+
+        if (self.update_installed):
+            logger.warning("We have already installed an update and pending restart.")
+            return
+
+        logger.debug("self.is_initial_delay=%r, self.timedelta_remaining_to_next_check()=%r",
+                     self.is_initial_delay, self.timedelta_remaining_to_next_check())
+
+        # if we were called after the initial delay, check that we are due for software update check.
+        if (self.is_initial_delay):
+            self.is_initial_delay = False
+            if (self.timedelta_remaining_to_next_check() > datetime.timedelta(days=0, seconds=10)):
+                # software update check is not yet due (not even in the next 10 seconds). Just
+                # schedule next check.
+                self.schedule_next_update_check()
+                return
+
+        try:
+            # check for updates
+
+            rel_info = upd_core.check_for_updates()
+
+            if (rel_info is None):
+                # no updates.
+                logger.debug("UpdateGenericGuiInterface: No updates available.")
+                return
+
+            #
+            # There's an update, prompt the user.
+            #
+            if self.ask_to_update(rel_info):
+                #
+                # yes, install update
+                #
+                upd_core.install_update(rel_info)
+                self.update_installed = True
+                #
+                # update installed.
+                #
+                if self.ask_to_restart():
+                    restart_app()
+                    return
+                #
+            else:
+                logger.debug("UpdateGenericGuiInterface: Not installing update.")
+
+            # return to the main program.
+            return
+        finally:
+            self.last_check = datetime.datetime.now()
+            self.save_settings({'last_check': self.last_check})
+            self.schedule_next_update_check()
+
+
+
+    def schedule_next_update_check(self):
+        if not self.check_for_updates_enabled:
+            logger.debug("UpdateGenericGuiInterface:Not scheduling update check because we were "
+                         "asked not to check for updates.")
+
+        if (self.is_initial_delay):
+            self.set_timeout_check(self.init_check_delay)
+            logger.debug("UpdateGenericGuiInterface: requested initial single-shot timer for %r seconds"
+                         %(self.init_check_delay))
+        else:
+            timedelta_remaining = self.timedelta_remaining_to_next_check()
+            if (timedelta_remaining <= datetime.timedelta(0)):
+                logger.debug("UpdateGenericGuiInterface: software update check due now already, checking")
+                self.check_for_updates()
+                return
+            self.set_timeout_check(timedelta_remaining)
+            logger.debug("UpdateGenericGuiInterface: requested single-shot timer for %r",
+                         timedelta_remaining)
+
+
+    def timedelta_remaining_to_next_check(self):
+        return ((self.last_check + self.check_interval) - datetime.datetime.now())
+
+
+
+    # ------------------------------------------
+
+    # these absolutely need to be reimplemented
+
+    def ask_to_update(self, rel_info):
+        """
+        Subclasses should prompt the user whether they want to install the update `rel_info` or not.
+        
+        Note: Interfaces may also present additional buttons such as "Never check for updates", or
+        "Skip this update", and set properties and/or settings accordingly.
+        
+        Return TRUE if the program should be restarted, or FALSE if not.
+        """
+        raise NotImplementedError
+        
+    def ask_to_restart(self):
+        """
+        Subclasses should prompt the user to restart the program after a successful update.
+
+        Return TRUE if the program should be restarted, or FALSE if not.
+        """
+        raise NotImplementedError
+        
+    def set_timeout_check(self, interval_timedelta):
+        """
+        Subclasses should reimplement this function to call the function `check_for_updates()` after
+        `interval_timedelta`. `interval_timedelta` is a `datetime.timedelta` object.
+        """
+        raise NotImplementedError
+
+    def load_settings(self, keylist):
+        """
+        Subclasses may reimplement this function to cusomize where and how the settings are stored,
+        usually using a toolbox-specific utility, such as QSettings in PyQt4.
+        """
+        raise NotImplementedError
+
+    def save_settings(self, d=None):
+        """
+        Save the given settings in the dictionary `d` to some local settings. If d is None, then
+        all settings should be saved, effectively taking `d` to be the dictionary returned by
+        `all_settings()`.
+        """
+        raise NotImplementedError
+
 
 
