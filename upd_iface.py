@@ -37,7 +37,9 @@ import subprocess
 import datetime
 import logging
 
-import upd_core
+from . import util
+from . import upd_core
+
 
 logger = logging.getLogger('updater4pyi')
 
@@ -59,38 +61,6 @@ class UpdateInterface(object):
 
 
 # ---------------------------------------------------------------
-
-# utilities
-
-
-def restart_app(exe=None):
-    if (exe is None):
-        exe = upd_core.file_to_update().executable
-
-    if upd_core.is_macosx() or upd_core.is_linux():
-        this_pid = os.getpid()
-        subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; %s"
-                         %(this_pid, _bash_quote(exe)),
-                         shell=True)
-        sys.exit(0)
-        
-    elif upd_core.is_win():
-        # TODO: write me! sth like the following, but this needs testing:
-        #subprocess.Popen("%s" %(_batch_quote(exe)),
-        #                 shell=False)
-        #sys.exit(0)
-        raise NotImplementedError
-
-    else:
-        logger.warning("I don't know about your platform. You'll have to restart this "
-                       "program by yourself like a grown-up. I'm exiting now! Have fun.")
-        sys.exit(0)
-
-def _bash_quote(x):
-    return "'" + x.replace("'", "'\\''") + "'"
-def _batch_quote(x):
-    raise NotImplementedError
-    #return '"' + x.replace(...) + '"'
 
 
 
@@ -162,6 +132,50 @@ def ensure_datetime(x):
 
     raise ValueError("Can't parse date/time: unknown type: %r" %(x))
         
+
+
+# utility: restart this application
+
+def restart_app(exe=None):
+
+    from . import upd_core
+
+    file_to_update = upd_core.file_to_update()
+
+    if (exe is None):
+        exe = file_to_update.executable
+
+    # the exe_cmd
+    
+    if util.is_macosx() or util.is_linux():
+        exe_cmd = util.bash_quote(exe)
+
+        if (util.is_macosx() and
+            exe == file_to_update.executable and
+            file_to_update.fn.endswith('.app')):
+            # Mac OS X, we are launching this exact executable, which is known to be a .app;
+            # --> use 'open FooBar.app' instead.
+            exe_cmd = 'open '+util.bash_quote(file_to_update.fn) # the .app
+
+        this_pid = os.getpid()
+        subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; ( %s & )"
+                         %(this_pid, exe_cmd),
+                         shell=True)
+        sys.exit(0)
+        
+    elif util.is_win():
+        # TODO: write me! sth like the following, but this needs testing:
+        #subprocess.Popen("%s" %(_batch_quote(exe)),
+        #                 shell=False)
+        #sys.exit(0)
+        raise NotImplementedError
+
+    else:
+        logger.warning("I don't know about your platform. You'll have to restart this "
+                       "program by yourself like a grown-up. I'm exiting now! Have fun.")
+        sys.exit(0)
+
+
 
 # -----------
 

@@ -40,16 +40,13 @@ import json
 import inspect
 import urllib2
 
-import upd_core
+from . import util
+from . import upd_core
+from .upd_core import RELTYPE_UNKNOWN, RELTYPE_EXE, RELTYPE_ARCHIVE, RELTYPE_BUNDLE_ARCHIVE
+
 
 logger = logging.getLogger('updater4pyi')
 
-
-
-RELTYPE_UNKNOWN = 0
-RELTYPE_EXE = 1
-RELTYPE_ARCHIVE = 2
-RELTYPE_BUNDLE_ARCHIVE = 3
 
 class BinReleaseInfo(object):
     def __init__(self, version=None, filename=None, url=None,
@@ -266,10 +263,10 @@ class UpdateLocalDirectorySource(UpdateSource):
         versiondirs = sorted([ vdir for vdir in os.listdir(self.source_directory)
                                if os.path.isdir(os.path.join(self.source_directory, vdir))
                                ],
-                             key=upd_core.parse_version,
+                             key=util.parse_version,
                              reverse=True);
 
-        newer_than_version_parsed = upd_core.parse_version(upd_core.current_version())
+        newer_than_version_parsed = util.parse_version(upd_core.current_version())
 
         file_to_update = upd_core.file_to_update()
 
@@ -282,7 +279,7 @@ class UpdateLocalDirectorySource(UpdateSource):
             logger.debug("got version: %s" %(ver))
             
             if (newer_than_version_parsed is not None and
-                upd_core.parse_version(ver) <= newer_than_version_parsed):
+                util.parse_version(ver) <= newer_than_version_parsed):
                 # no update found.
                 break
 
@@ -371,7 +368,7 @@ class UpdateGithubReleasesSource(UpdateSource):
 
         newer_than_version_parsed = None
         if (newer_than_version is not None):
-            newer_than_version_parsed = upd_core.parse_version(newer_than_version)
+            newer_than_version_parsed = util.parse_version(newer_than_version)
 
         inf_list = []
         
@@ -389,7 +386,7 @@ class UpdateGithubReleasesSource(UpdateSource):
                 relver = (tag_name[1:] if tag_name[0] == 'v' else tag_name)
 
             if (newer_than_version_parsed is not None and
-                upd_core.parse_version(relver) <= newer_than_version_parsed):
+                util.parse_version(relver) <= newer_than_version_parsed):
                 logger.debug("Version %s is not strictly newer than %s, skipping...", relver, newer_than_version)
                 continue
                 

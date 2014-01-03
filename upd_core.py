@@ -41,6 +41,7 @@ import zipfile
 import tarfile
 import json
 import glob
+import subprocess
 
 import tempfile
 import httplib
@@ -50,9 +51,8 @@ from urlparse import urlparse
 import shutil
 import urllib2
 
-import upd_version
-from upd_iface import UpdateConsoleInterface
-import upd_source
+from . import util
+from . import upd_version
 
 
 logger = logging.getLogger('updater4pyi')
@@ -65,24 +65,15 @@ class Updater4PyiError(Exception):
         Exception.__init__(self, 'Software Updater Error: '+msg);
 
 
-
 # ------------------------------------------------------------------------
 
-# utility
+# release package types
 
-def resource_path(relative_path):
-    """
-    Get absolute path to resource, works for dev and for PyInstaller
-    """
-    def base_path():
-        try:
-            return sys._MEIPASS
-        except AttributeError:
-            pass
-        mainfn = inspect.stack()[-1][1]
-        return os.path.abspath(os.path.dirname(mainfn))
 
-    return os.path.join(base_path(), relative_path)
+RELTYPE_UNKNOWN = 0
+RELTYPE_EXE = 1
+RELTYPE_ARCHIVE = 2
+RELTYPE_BUNDLE_ARCHIVE = 3
 
 
 
@@ -128,6 +119,7 @@ def setup_updater(current_version, update_source, update_interface=None):
         raise Updater4PyiError("This installation is not built with pyinstaller.")
 
     if (update_interface is None):
+        from .upd_iface import UpdateConsoleInterface
         update_interface = UpdateConsoleInterface()
     
     _update_source = update_source
@@ -144,7 +136,7 @@ def setup_updater(current_version, update_source, update_interface=None):
 
 # -------------------------------
 
-CERT_FILE = resource_path('updater4pyi/cacert.pem');#'root.crt');
+CERT_FILE = util.resource_path('updater4pyi/cacert.pem');#'root.crt');
 
 class ValidHTTPSConnection(httplib.HTTPConnection):
     """
@@ -214,7 +206,7 @@ def determine_file_to_update():
 
         if (lastdir == 'MacOS' and beforelastdir == 'Contents'):
             # we're in a Mac OS X bundle, so the actual "executable" should point to the .app file
-            reltype = upd_source.RELTYPE_BUNDLE_ARCHIVE
+            reltype = RELTYPE_BUNDLE_ARCHIVE
             updatefile = allbeforebeforelastdir
             logger.debug("We're a bundle: updatefile=%s", updatefile)
 
@@ -224,12 +216,12 @@ def determine_file_to_update():
             meipass = os.path.realpath(sys._MEIPASS);
             if (updatefile.startswith(meipass)):
                 # pyinstaller files are installed directly: it's the dir we need to update
-                reltype = upd_source.RELTYPE_ARCHIVE
+                reltype = RELTYPE_ARCHIVE
                 updatefile = meipass;
 
     if reltype is None:
         # otherwise, we're a self-contained executable.
-        reltype = upd_source.RELTYPE_EXE
+        reltype = RELTYPE_EXE
 
 
     logger.debug("got FileToUpdate(fn=%r, reltype=%d, executable=%s)",
@@ -239,30 +231,6 @@ def determine_file_to_update():
 
 
 
-
-# ------------------------------------
-
-# platform utils
-
-
-def is_macosx():
-    return sys.platform.startswith('darwin')
-
-def is_win():
-    return sys.platform.startswith('win')
-
-def is_linux():
-    return sys.platform.startswith('linux')
-
-def simple_platform():
-    if is_macosx():
-        return 'macosx'
-    elif is_win():
-        return 'win'
-    elif is_linux():
-        return 'linux'
-    else:
-        return sys.platform
 
 
 # -------------------------------------------
@@ -303,15 +271,15 @@ def check_for_updates():
     wanted_reltype = _file_to_update.reltype
     
     # this is current version
-    curver = parse_version(_current_version)
+    curver = util.parse_version(_current_version)
 
     # select the releases that match our criteria;
     # also sort the releases by version number.
-    rel_w_parsedversion = [(r, parse_version(r.get_version())) for r in releases]
+    rel_w_parsedversion = [(r, util.parse_version(r.get_version())) for r in releases]
     releases2 = sorted([(rel, relparsedver)
                         for (rel, relparsedver) in rel_w_parsedversion
                         if (rel.get_reltype() == wanted_reltype and
-                            rel.get_platform() == simple_platform() and
+                            rel.get_platform() == util.simple_platform() and
                             relparsedver > curver)
                         ],
                        key=lambda r2: r2[1],
@@ -340,6 +308,46 @@ SPECIAL_ZIP_FILES = ('_updater4pyi_metainf.json',
                      '_METAINF',
                      )
 
+class _ExtractLocation(object):
+    def __init__(self, filetoupdate, needs_sudo, **kwargs):
+        self.filetoupdate = filetoupdate
+        self.needs_sudo = needs_sudo
+
+        super(_ExtractLocation, self).__init__(**kwargs)
+
+
+    def findextractto(self, namelist):
+        
+        (basedir, basefn) = os.path.split(self.filetoupdate.fn)
+
+        self.extractto = None
+        self.installto = None
+        self.extracttotemp = False
+
+        self.extractstodir = True
+        if ([True for x in namelist if not x.startswith(basefn) and x not in SPECIAL_ZIP_FILES]):
+            # the zip file doesn't extract into a single dir--there are files with different prefixes.
+            # so extract into a single dir ourselves.
+            self.extractstodir = False
+            self.extractto = self.filetoupdate.fn
+            if not self.needs_sudo:
+                # create the directory only if we don't need superuser rights for installation
+                try:
+                    os.mkdir(self.filetoupdate.fn)
+                except OSError as e:
+                    raise Updater4PyiError("Failed to create directory %s!" %(self.filetoupdate.fn))
+        else:
+            self.extractto = basedir
+
+        if self.needs_sudo:
+            # in any case, if we need superuser rights for installation, then extract
+            # to a temporary directory.
+            self.installto = self.extractto
+            self.extracttotemp = True
+            self.extractto = tempfile.mkdtemp(suffix='', prefix='upd4pyi_tmp_xtract_', dir=None)
+
+        return self.extractto
+
 
 def install_update(rel_info):
 
@@ -366,14 +374,23 @@ def install_update(rel_info):
     # TODO: add support for download verifyer (MD5/SHA or GPG signature)
     # ...
 
+    # detect if admin rights are needed.
+    needs_sudo = not os.access(filetoupdate.fn, os.W_OK);
+
+    logger.debug("installation will need sudo? %s", needs_sudo)
+
     # move that file out of the way, but keep it as backup. So just rename it.
     backupfilename = _backupname(filetoupdate.fn)
-    try:
-        os.rename(filetoupdate.fn, backupfilename);
-    except OSError as e:
-        raise Updater4PyiError("Failed to rename file %s!" %(str(e)))
+    if not needs_sudo:
+        try:
+            os.rename(filetoupdate.fn, backupfilename);
+        except OSError as e:
+            raise Updater4PyiError("Failed to rename file %s!" %(str(e)))
 
     def restorebackup():
+        if needs_sudo:
+            # no backup was generated anyway at this point
+            return
         try:
             shutil.rmtree(filetoupdate.fn)
             shutil.move(backupfilename, filetoupdate.fn)
@@ -382,36 +399,29 @@ def install_update(rel_info):
                          % (backupfilename, filetoupdate.fn, str(e)))
             pass
 
-    reltype_is_dir = filetoupdate.reltype in (upd_source.RELTYPE_BUNDLE_ARCHIVE,
-                                              upd_source.RELTYPE_ARCHIVE);
+    reltype_is_dir = filetoupdate.reltype in (RELTYPE_BUNDLE_ARCHIVE,
+                                              RELTYPE_ARCHIVE);
+
+    extractto = None
+    installto = None
 
     try:
         if (reltype_is_dir):
             # we are updating the directory itself. So make sure we download an archive file.
 
-            (basedir, basefn) = os.path.split(filetoupdate.fn)
+            extractloc = _ExtractLocation(filetoupdate=filetoupdate,
+                                          needs_sudo=needs_sudo)
 
-            def get_extract_to(namelist):
-                extractto = None
-                if ([True for x in namelist if not x.startswith(basefn) and x not in SPECIAL_ZIP_FILES]):
-                    # the zip file doesn't extract into a single dir--there are files with different prefixes.
-                    # so extract into a single dir ourselves.
-                    try:
-                        os.mkdir(filetoupdate.fn)
-                    except OSError as e:
-                        raise Updater4PyiError("Failed to create directory %s!" %(filetoupdate.fn))
-
-                    extractto = filetoupdate.fn
-                else:
-                    extractto = basedir
-                return extractto
+            logger.debug("extractloc: %r", extractloc.__dict__)
 
             if (zipfile.is_zipfile(tmpfile.name)):
                 # ZIP file
                 thezipfile = zipfile.ZipFile(tmpfile.name, 'r')
+                
                 # extract the ZIP file to our directory.
 
-                extractto = get_extract_to(thezipfile.namelist())
+                extractloc.findextractto(namelist=thezipfile.namelist())
+                extractto = extractloc.extractto
 
                 permdata = None
                 if ('_updater4pyi_metainf.json' in thezipfile.namelist()):
@@ -452,7 +462,8 @@ def install_update(rel_info):
                 thetarfile = tarfile.open(tmpfile.name, 'r');
                 # extract the ZIP file to our directory.
 
-                extractto = get_extract_to(thetarfile.getnames())
+                extractloc.findextractto(namelist=thetarfile.getnames())
+                extractto = extractloc.extractto
 
                 thezipfile.extractall(extractto)
                 thezipfile.close()
@@ -461,13 +472,13 @@ def install_update(rel_info):
                 os.unlink(tmpfile.name)
 
             else:
-                raise Updater4PyiError("Downloaded file %s is not an archive." %(os.path.basename(tmpfile.name)))
+                raise Updater4PyiError("Downloaded file %s is not a recognized archive."
+                                       %(os.path.basename(tmpfile.name)))
+
+            # now, set installto if we need a sudo install
+            installto = extractloc.installto
 
         else:
-            # following docs: these may be on different filesystems, and docs specify that os.rename()
-            # may fail in that case. So use shutil.move() which should work.
-            shutil.move(tmpfile.name, filetoupdate.fn)
-            
             # make sure the file is executable
             os.chmod(filetoupdate.fn,
                      stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC|
@@ -476,6 +487,28 @@ def install_update(rel_info):
                      stat.S_IROTH|stat.S_IXOTH
                      )
 
+            if not needs_sudo:
+                # following docs: these may be on different filesystems, and docs specify that os.rename()
+                # may fail in that case. So use shutil.move() which should work.
+                shutil.move(tmpfile.name, filetoupdate.fn)
+            else:
+                # the ready file, and the install location. This will be installed by the sudo script.
+                extractto = tmpfile.name
+                installto = filetoupdate.fn
+
+        # do possibly the sudo install if needed
+        if needs_sudo:
+            if util.is_linux() or util.is_macosx():
+                res = util.run_as_admin([util.which('bash'),
+                                         util.resource_path('updater4pyi/installers/unix/do_install.sh'),
+                                         extractto, installto, backupfilename])
+                if (res != 0):
+                    raise Updater4PyiError("Can't install the update to the final location %s!" %(installto))
+            elif util.is_win():
+                raise NotImplementedError
+            else:
+                logger.error("I don't know your platform to run sudo on: %s", util.simple_platform())
+                raise NotImplementedError
 
     except:
         logger.error("Software Update Error: %s\n" %(str(sys.exc_info()[1])));
@@ -484,10 +517,11 @@ def install_update(rel_info):
 
     logger.warning("For debugging & possible unstability, NOT removing backup.")
     # remove the backup.
-    #if (reltype_is_dir):
-    #    shutil.rmtree(backupfilename)
-    #else
-    #    os.unlink(backupfilename)
+    #if not needs_sudo:
+        #if (reltype_is_dir):
+        #    shutil.rmtree(backupfilename)
+        #else
+        #    os.unlink(backupfilename)
     
     
 
@@ -501,9 +535,6 @@ def _backupname(filename):
         raise Updater4PyiError("Can't figure out a backup name for file %s!!" %(filename))
     logger.debug("Got backup name: %s" %(filename+try_suffix))
     return filename+try_suffix;
-
-
-
 
 
 def download_file(theurl, fdst):
@@ -531,73 +562,3 @@ def _noexcept(f):
 
 
 
-
-
-
-
-
-# ------------------------------------------------------------------------
-
-# Code taken from setuptools project,
-#
-# https://bitbucket.org/pypa/setuptools/src/353a4270074435faa7daa2aa0ee480e22e505f53/pkg_resources.py?at=default
-#
-# TODO: didn't find license information. Is there any?
-#
-
-_component_re = re.compile(r'(\d+ | [a-z]+ | \.| -)', re.VERBOSE)
-_replace = {'pre':'c', 'preview':'c','-':'final-','rc':'c','dev':'@'}.get
-
-def _parse_version_parts(s):
-    for part in _component_re.split(s):
-        part = _replace(part,part)
-        if not part or part=='.':
-            continue
-        if part[:1] in '0123456789':
-            yield part.zfill(8)    # pad for numeric comparison
-        else:
-            yield '*'+part
-
-    yield '*final'  # ensure that alpha/beta/candidate are before final
-
-def parse_version(s):
-    """Convert a version string to a chronologically-sortable key
-
-    This is a rough cross between distutils' StrictVersion and LooseVersion;
-    if you give it versions that would work with StrictVersion, then it behaves
-    the same; otherwise it acts like a slightly-smarter LooseVersion. It is
-    *possible* to create pathological version coding schemes that will fool
-    this parser, but they should be very rare in practice.
-
-    The returned value will be a tuple of strings.  Numeric portions of the
-    version are padded to 8 digits so they will compare numerically, but
-    without relying on how numbers compare relative to strings.  Dots are
-    dropped, but dashes are retained.  Trailing zeros between alpha segments
-    or dashes are suppressed, so that e.g. "2.4.0" is considered the same as
-    "2.4". Alphanumeric parts are lower-cased.
-
-    The algorithm assumes that strings like "-" and any alpha string that
-    alphabetically follows "final"  represents a "patch level".  So, "2.4-1"
-    is assumed to be a branch or patch of "2.4", and therefore "2.4.1" is
-    considered newer than "2.4-1", which in turn is newer than "2.4".
-
-    Strings like "a", "b", "c", "alpha", "beta", "candidate" and so on (that
-    come before "final" alphabetically) are assumed to be pre-release versions,
-    so that the version "2.4" is considered newer than "2.4a1".
-
-    Finally, to handle miscellaneous cases, the strings "pre", "preview", and
-    "rc" are treated as if they were "c", i.e. as though they were release
-    candidates, and therefore are not as new as a version string that does not
-    contain them, and "dev" is replaced with an '@' so that it sorts lower than
-    than any other pre-release tag.
-    """
-    parts = []
-    for part in _parse_version_parts(s.lower()):
-        if part.startswith('*'):
-            if part<'*final':   # remove '-' before a prerelease tag
-                while parts and parts[-1]=='*final-': parts.pop()
-            # remove trailing zeros from each series of numeric parts
-            while parts and parts[-1]=='00000000':
-                parts.pop()
-        parts.append(part)
-    return tuple(parts)
