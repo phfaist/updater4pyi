@@ -505,10 +505,13 @@ def install_update(rel_info):
                 if (res != 0):
                     raise Updater4PyiError("Can't install the update to the final location %s!" %(installto))
             elif util.is_win():
-                raise NotImplementedError
+                res = util.run_as_admin([util.resource_path('updater4pyi/installers/win/do_install.exe'),
+                                         extractto, installto, backupfilename])
+                if (res != 0):
+                    raise Updater4PyiError("Can't install update to the final location %s!" %(installto))
             else:
                 logger.error("I don't know your platform to run sudo on: %s", util.simple_platform())
-                raise NotImplementedError
+                raise RuntimeError("Unknown platform: %s" %(util.simple_platform()))
 
     except:
         logger.error("Software Update Error: %s\n" %(str(sys.exc_info()[1])));

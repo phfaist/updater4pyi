@@ -75,11 +75,11 @@ def simple_platform():
 
 def bash_quote(x):
     return "'" + x.replace("'", "'\\''") + "'"
-def batch_quote(x):
-    raise NotImplementedError
+def winshell_quote(x):
     # wait a minute, how are win/dos batch escapes ??!?
-    #return '"' + x.replace(...) + '"'
-def applescript_string(x):
+    # ... see http://technet.microsoft.com/en-us/library/cc723564.aspx
+    return '"' + x.replace('"', '""') + '"'
+def applescript_quote(x):
     return '"' + re.sub(r'([\\"])', r'\\\1', x) + '"'
 
 
@@ -110,7 +110,7 @@ def run_as_admin(argv):
     if is_macosx():
         cmd = ["osascript",
                "-e",
-               "do shell script " + applescript_string(
+               "do shell script " + applescript_quote(
                    " ".join([bash_quote(x) for x in argv])
                    ) + " with administrator privileges"
                ]
@@ -127,8 +127,8 @@ def run_as_admin(argv):
         else:
             cmd = [which('sudo')] + argv
     elif is_win():
-        #...
-        raise NotImplementedError
+        # our helper function
+        return _run_as_admin_win(argv);
     else:
         logger.error("Platform not recognized for running process as admin: %s",
                      simple_platform())
@@ -144,6 +144,53 @@ def run_as_admin(argv):
         logger.warning("admin subprocess %s failed", (argv[0] if argv else None))
 
     return retcode
+
+
+# -----------------------------------------------------------------------------------
+#
+# code inspired from http://stackoverflow.com/a/19719292/1694896
+#
+def _run_as_admin_win(argv, wait=True):
+
+    if os.name != 'nt':
+        raise RuntimeError, "This function is only implemented on Windows."
+
+    import win32api, win32con, win32event, win32process
+    from win32com.shell.shell import ShellExecuteEx
+    from win32com.shell import shellcon
+
+    cmd = winshell_quote(argv[0])
+    # XXX TODO: isn't there a function or something we can call to massage command line params?
+    params = " ".join([winshell_quote(x) for x in argv[1:]])
+    
+    cmdDir = ''
+    showCmd = win32con.SW_SHOWNORMAL
+    #showCmd = win32con.SW_HIDE
+    lpVerb = 'runas'  # causes UAC elevation prompt.
+
+    logger.debug("running %s %s", cmd, params)
+
+    # ShellExecute() doesn't seem to allow us to fetch the PID or handle
+    # of the process, so we can't get anything useful from it. Therefore
+    # the more complex ShellExecuteEx() must be used.
+
+    # procHandle = win32api.ShellExecute(0, lpVerb, cmd, params, cmdDir, showCmd)
+
+    procInfo = ShellExecuteEx(nShow=showCmd,
+                              fMask=shellcon.SEE_MASK_NOCLOSEPROCESS,
+                              lpVerb=lpVerb,
+                              lpFile=cmd,
+                              lpParameters=params)
+
+    if wait:
+        procHandle = procInfo['hProcess']    
+        obj = win32event.WaitForSingleObject(procHandle, win32event.INFINITE)
+        rc = win32process.GetExitCodeProcess(procHandle)
+        logger.debug("Process handle %s returned code %s", (procHandle, rc))
+    else:
+        rc = None
+
+    return rc
 
 
 
