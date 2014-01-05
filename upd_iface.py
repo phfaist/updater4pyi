@@ -45,7 +45,8 @@ logger = logging.getLogger('updater4pyi')
 
 
 class UpdateInterface(object):
-    def __init__(self, *args, **pwargs):
+    def __init__(self, progname=None, **pwargs):
+        self.progname = progname
         pass
 
     def start(self, **kwargs):
@@ -183,8 +184,8 @@ def restart_app(exe=None):
 
 
 class UpdateConsoleInterface(UpdateInterface):
-    def __init__(self, ask_before_checking=False, *args, **kwargs):
-        super(UpdateConsoleInterface, self).__init__(self, *args, **kwargs)
+    def __init__(self, ask_before_checking=False, **kwargs):
+        super(UpdateConsoleInterface, self).__init__(self, **kwargs)
         self.ask_before_checking = ask_before_checking
 
     def start(self):
@@ -212,7 +213,7 @@ class UpdateConsoleInterface(UpdateInterface):
         print ""
         print "-----------------------------------------------------------"
         print ""
-        print "A new software update is available (version %s)" %(upd_info.version)
+        print "A new software update is available (%s version %s)" %(self.progname, upd_info.version)
         print ""
 
         if (self._ynprompt("Do you want to install it? (y/n) ")):
@@ -259,7 +260,7 @@ _SETTINGS_ALL = ['check_for_updates_enabled', 'init_check_delay', 'check_interva
                  'last_check']
 
 class UpdateGenericGuiInterface(UpdateInterface):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         
         self.update_installed = False
         self.is_initial_delay = True
@@ -271,7 +272,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
         self.check_for_updates_enabled = d.get('check_for_updates_enabled', True)
         self.last_check = ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
         
-        super(UpdateGenericGuiInterface, self).__init__(*args, **kwargs)
+        super(UpdateGenericGuiInterface, self).__init__(**kwargs)
 
     
     def start(self):
@@ -302,6 +303,8 @@ class UpdateGenericGuiInterface(UpdateInterface):
         self.check_for_updates_enabled = enabled
         # save setting to settings file
         if save: self.save_settings({'check_for_updates_enabled': self.check_for_updates_enabled})
+        # also, schedule the next update check
+        self.schedule_next_update_check()
 
     def lastCheck(self):
         return self.last_check
@@ -335,14 +338,20 @@ class UpdateGenericGuiInterface(UpdateInterface):
         logger.debug("self.is_initial_delay=%r, self.timedelta_remaining_to_next_check()=%r",
                      self.is_initial_delay, self.timedelta_remaining_to_next_check())
 
-        # if we were called after the initial delay, check that we are due for software update check.
+        # if we were called just after the initial delay, reset this flag.
         if (self.is_initial_delay):
             self.is_initial_delay = False
-            if (self.timedelta_remaining_to_next_check() > datetime.timedelta(days=0, seconds=10)):
-                # software update check is not yet due (not even in the next 10 seconds). Just
-                # schedule next check.
-                self.schedule_next_update_check()
-                return
+
+        # now, really check that we are due for software update check.
+        #   * we might be after an initial delay, and while the app was just started, updates are checked
+        #     for eg. once a month and a check is not yet due, yet this function is called by timeout.
+        #   * even if we are not at the initial delay, the user may have disabled update checks in the
+        #     settings between the scheduling of the update check and now.
+        if (not self.is_check_now_due()):
+            # software update check is not yet due (not even in the next 10 seconds). Just
+            # schedule next check.
+            self.schedule_next_update_check()
+            return
 
         try:
             # check for updates
@@ -381,11 +390,15 @@ class UpdateGenericGuiInterface(UpdateInterface):
             self.schedule_next_update_check()
 
 
+    def is_check_now_due(self, tolerance=datetime.timedelta(days=0, seconds=10)):
+        return (self.check_for_updates_enabled and
+                self.timedelta_remaining_to_next_check() <= tolerance)
 
     def schedule_next_update_check(self):
         if not self.check_for_updates_enabled:
             logger.debug("UpdateGenericGuiInterface:Not scheduling update check because we were "
                          "asked not to check for updates.")
+            return
 
         if (self.is_initial_delay):
             self.set_timeout_check(self.init_check_delay)
@@ -407,16 +420,18 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
 
 
-    # ------------------------------------------
-
-    # these absolutely need to be reimplemented
+    # --------------------------------------------------------------------------
+    # the following methods need to be reimplemented, using the toolkit at hand.
+    # --------------------------------------------------------------------------
+    
 
     def ask_to_update(self, rel_info):
         """
         Subclasses should prompt the user whether they want to install the update `rel_info` or not.
         
         Note: Interfaces may also present additional buttons such as "Never check for updates", or
-        "Skip this update", and set properties and/or settings accordingly.
+        "Skip this update", and set properties and/or settings accordingly with e.g.
+        `setCheckForUpdatesEnabled()`.
         
         Return TRUE if the program should be restarted, or FALSE if not.
         """

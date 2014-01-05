@@ -44,12 +44,12 @@ logger = logging.getLogger('updater4pyi')
 
 
 class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, **kwargs):
         self.timer = None
         
         QObject.__init__(self, parent=parent)
         # super doesn't propagate out of the Qt multiple inheritance...
-        upd_iface.UpdateGenericGuiInterface.__init__(self)
+        upd_iface.UpdateGenericGuiInterface.__init__(self, **kwargs)
 
 
     # ------------
@@ -84,21 +84,52 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
 
 
     def ask_to_update(self, rel_info):
-        resp = QMessageBox.question(None, self.tr("Software Update", "Updater4Pyi"),
-                                    str(self.tr("A new software update is available (version %s). "
-                                                "Do you want to install it?", "Updater4Pyi"))
-                                    %(rel_info.version),
-                                    QMessageBox.Yes|QMessageBox.Cancel, QMessageBox.Yes)
+        msgBox = QMessageBox(parent=None)
+        msgBox.setText(unicode(self.tr("A new software update is available (%sversion %s)."))
+                       %(self.progname+' ' if self.progname else '', rel_info.get_version()))
+        msgBox.setInformativeText(self.tr("Do you want to install the new version?"))
+        btnInstall = msgBox.addButton("Install", QMessageBox.AcceptRole)
+        btnNotNow = msgBox.addButton("Not now", QMessageBox.RejectRole)
+        btnDisableUpdates = msgBox.addButton("Disable Update Checks", QMessageBox.RejectRole)
+        msgBox.setDefaultButton(btnInstall)
+        msgBox.setEscapeButton(btnNotNow)
+        msgBox.setIcon(QMessageBox.Question)
+        msgBox.exec_()
 
-        return resp == QMessageBox.Yes
+        clickedbutton = msgBox.clickedButton()
+
+        # btnInstall: install update
+        
+        if (clickedbutton == btnInstall):
+            return True
+
+        # btnNotNow, btnDisableUpdates: don't check for updates
+        
+        if (clickedbutton == btnDisableUpdates):
+            self.setCheckForUpdatesEnabled(False)
+
+        return False
+        
         
     def ask_to_restart(self):
-        resp = QMessageBox.information(None, self.tr("Update Complete.", "Updater4Pyi"),
-                                       self.tr("The Update completed successfully. This program needs to be "
-                                                  "restarted for the changes to take effect. Restart now?",
-                                               "Updater4Pyi"),
-                                       QMessageBox.Yes|QMessageBox.No, QMessageBox.Yes)
-        return resp == QMessageBox.Yes
+        msgBox = QMessageBox(parent=None)
+        msgBox.setText(self.tr("The software update is now complete."))
+        msgBox.setInformativeText(self.tr("This program needs to be restarted for the changes "
+                                          "to take effect. Restart now?"))
+        btnRestart = msgBox.addButton("Restart", QMessageBox.AcceptRole)
+        btnIgnore = msgBox.addButton("Ignore", QMessageBox.RejectRole)
+
+        msgBox.setDefaultButton(btnRestart)
+        msgBox.setEscapeButton(btnIgnore)
+        msgBox.setIcon(QMessageBox.Information)
+        msgBox.exec_();
+
+        clickedbutton = msgBox.clickedButton()
+
+        if (clickedbutton == btnRestart):
+            return True
+
+        return False
         
         
     def set_timeout_check(self, interval_timedelta):
@@ -117,3 +148,25 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         self.timer.start()
         logger.debug("single-shot timer started with interval=%d ms", interval_ms)
 
+
+    # add proper slot decorations to these members
+
+    # don't use timedelta, unknown to Qt4, but rather milliseconds (and the rename slot accordingly)
+    @pyqtSlot(int)
+    def setInitCheckDelayMs(self, init_check_delay_ms, save=True):
+        super(UpdatePyQt4Interface, self).setInitCheckDelay(
+            datetime.timedelta(days=0, microseconds=init_check_delay_ms*1000),
+            save=save
+            )
+
+    # don't use timedelta, unknown to Qt4, but rather milliseconds (and the rename slot accordingly)
+    @pyqtSlot(int)
+    def setCheckIntervalMs(self, check_interval_ms, save=True):
+        super(UpdatePyQt4Interface, self).setCheckIntervalMs(
+            datetime.timedelta(days=0, microseconds=check_interval_ms*1000),
+            save=save
+            )
+
+    @pyqtSlot(bool)
+    def setCheckForUpdatesEnabled(self, enabled, save=True):
+        super(UpdatePyQt4Interface, self).setCheckForUpdatesEnabled(enabled, save=save)
