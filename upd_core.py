@@ -403,6 +403,10 @@ def install_update(rel_info):
             return
         try:
             shutil.rmtree(filetoupdate.fn)
+        except OSError:
+            # ignore
+            pass
+        try:
             shutil.move(backupfilename, filetoupdate.fn)
         except OSError as e:
             logger.error("Software Update Error: Failed to restore backup %s of %s! %s\n"
@@ -491,7 +495,7 @@ def install_update(rel_info):
 
         else:
             # make sure the file is executable
-            os.chmod(filetoupdate.fn,
+            os.chmod(tmpfile.name,
                      stat.S_IREAD|stat.S_IWRITE|stat.S_IEXEC|
                      stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR|
                      stat.S_IRGRP|stat.S_IXGRP|
@@ -579,7 +583,7 @@ def download_file(theurl, fdst):
 
     global url_opener
 
-    logger.debug("fetching URL %s to temp file %s ..." %(theurl, _noexcept(lambda : fdst.name)))
+    logger.debug("fetching URL %s to temp file %s ...", theurl, _noexcept(lambda : fdst.name))
 
     fdata = url_opener.open(theurl);
     shutil.copyfileobj(fdata, fdst)
