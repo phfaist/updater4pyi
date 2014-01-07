@@ -35,6 +35,7 @@ import sys
 import inspect
 import os
 import os.path
+import stat
 import collections
 import logging
 import zipfile
@@ -344,6 +345,7 @@ class _ExtractLocation(object):
             # to a temporary directory.
             self.installto = self.extractto
             self.extracttotemp = True
+            # NOTE: Don't change prefix and suffix, this name template is relied upon by do_install.exe !!
             self.extractto = tempfile.mkdtemp(suffix='', prefix='upd4pyi_tmp_xtract_', dir=None)
 
         return self.extractto
@@ -377,18 +379,26 @@ def install_update(rel_info):
     # detect if admin rights are needed.
     needs_sudo = not os.access(filetoupdate.fn, os.W_OK);
 
+    # determine if we will work in the temporary dir only and call an external utility (e.g. do_install.exe)
+    # or if we will directly unpack e.g. the zip file at the right location.
+    #
+    # reasons for staying in temp locations are:
+    #   * final location requires root access
+    #   * windows: can't overwrite files of the running process.
+    needs_work_in_temp_dir = needs_sudo or util.is_win();
+
     logger.debug("installation will need sudo? %s", needs_sudo)
 
     # move that file out of the way, but keep it as backup. So just rename it.
     backupfilename = _backupname(filetoupdate.fn)
-    if not needs_sudo:
+    if not needs_work_in_temp_dir:
         try:
             os.rename(filetoupdate.fn, backupfilename);
         except OSError as e:
             raise Updater4PyiError("Failed to rename file %s!" %(str(e)))
 
     def restorebackup():
-        if needs_sudo:
+        if needs_work_in_temp_dir:
             # no backup was generated anyway at this point
             return
         try:
@@ -402,7 +412,7 @@ def install_update(rel_info):
     reltype_is_dir = filetoupdate.reltype in (RELTYPE_BUNDLE_ARCHIVE,
                                               RELTYPE_ARCHIVE);
 
-    extractto = None
+    extractedfile = None
     installto = None
 
     try:
@@ -410,7 +420,7 @@ def install_update(rel_info):
             # we are updating the directory itself. So make sure we download an archive file.
 
             extractloc = _ExtractLocation(filetoupdate=filetoupdate,
-                                          needs_sudo=needs_sudo)
+                                          needs_sudo=needs_work_in_temp_dir)
 
             logger.debug("extractloc: %r", extractloc.__dict__)
 
@@ -476,6 +486,7 @@ def install_update(rel_info):
                                        %(os.path.basename(tmpfile.name)))
 
             # now, set installto if we need a sudo install
+            extractedfile = os.path.join(extractto, os.path.basename(filetoupdate.fn))
             installto = extractloc.installto
 
         else:
@@ -487,17 +498,17 @@ def install_update(rel_info):
                      stat.S_IROTH|stat.S_IXOTH
                      )
 
-            if not needs_sudo:
+            if not needs_work_in_temp_dir:
                 # following docs: these may be on different filesystems, and docs specify that os.rename()
                 # may fail in that case. So use shutil.move() which should work.
                 shutil.move(tmpfile.name, filetoupdate.fn)
             else:
                 # the ready file, and the install location. This will be installed by the sudo script.
-                extractto = tmpfile.name
+                extractedfile = tmpfile.name
                 installto = filetoupdate.fn
 
         # do possibly the sudo install if needed
-        if needs_sudo:
+        if needs_work_in_temp_dir:
             if util.is_linux() or util.is_macosx():
                 res = util.run_as_admin([util.which('bash'),
                                          util.resource_path('updater4pyi/installers/unix/do_install.sh'),
@@ -505,22 +516,46 @@ def install_update(rel_info):
                 if (res != 0):
                     raise Updater4PyiError("Can't install the update to the final location %s!" %(installto))
             elif util.is_win():
-                res = util.run_as_admin([util.resource_path('updater4pyi/installers/win/do_install.exe'),
-                                         extractto, installto, backupfilename])
-                if (res != 0):
-                    raise Updater4PyiError("Can't install update to the final location %s!" %(installto))
+                # first, copy do_install.exe and its dependencies to some path out of the way, and
+                # instruct them to auto-destroy.
+                doinstalldirname = tempfile.mkdtemp(prefix='upd4pyi_tmp_')
+                doinstallzipfile = zipfile.ZipFile(
+                    util.resource_path('updater4pyi/installers/win/do_install.exe.zip'),
+                    'r')
+                doinstallzipfile.extractall(doinstalldirname)
+                # now, run do_install.exe
+                manage_install_cmd = [os.path.join(doinstalldirname, 'manage_install.exe'),
+                                      str(os.getpid()),
+                                      ('1' if needs_sudo else '0'),
+                                      filetoupdate.fn,
+                                      backupfilename,
+                                      extractedfile,
+                                      installto,
+                                      doinstalldirname,
+                                      filetoupdate.executable
+                                   ]
+                logger.debug("Running %r as %s", manage_install_cmd, ("admin" if needs_sudo else "normal user"))
+                util.run_win(argv=manage_install_cmd,
+                             # manage_install will itself run do_install as sudo if needed. Don't run
+                             # manage_install as root, because manage_install is also responsible of
+                             # relaunching us.
+                             needs_sudo=False,
+                             wait=False,
+                             cwd=os.path.expanduser("~"), # some path out of our dir, which needs to be deleted.
+                             )
+                sys.exit(0)
             else:
-                logger.error("I don't know your platform to run sudo on: %s", util.simple_platform())
-                raise RuntimeError("Unknown platform: %s" %(util.simple_platform()))
+                logger.error("I don't know your platform to run sudo install on: %s", util.simple_platform())
+                raise RuntimeError("Unknown platform for sudo install: %s" %(util.simple_platform()))
 
-    except:
+    except Exception:
         logger.error("Software Update Error: %s\n" %(str(sys.exc_info()[1])));
         restorebackup()
         raise
 
     logger.warning("For debugging & possible unstability, NOT removing backup.")
     # remove the backup.
-    #if not needs_sudo:
+    #if not needs_work_in_temp_dir:
         #if (reltype_is_dir):
         #    shutil.rmtree(backupfilename)
         #else

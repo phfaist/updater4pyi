@@ -10,17 +10,16 @@ def locpath(x):
 
 datas = [
     (locpath('cacert.pem'), 'updater4pyi'),
-    ];
+    ]
 
 if updater4pyi.util.is_linux() or updater4pyi.util.is_macosx():
     datas += [
-        (locpath('installers/unix/do_install.sh'), 'updater4pyi/installers/unix')
-        ];
+        (locpath('installers/unix/do_install.sh'), 'updater4pyi/installers/unix'),
+        ]
 elif updater4pyi.util.is_win():
     datas += [
-        (locpath('installers/win/do_install.exe'), 'updater4pyi/installers/win')
-        ];
-
+        (locpath('installers/win/do_install.exe.zip'), 'updater4pyi/installers/win'),
+        ]
 
 #from hookutils import collect_data_files
 #datas = collect_data_files('updater4pyi')

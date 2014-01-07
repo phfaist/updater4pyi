@@ -165,11 +165,10 @@ def restart_app(exe=None):
         sys.exit(0)
         
     elif util.is_win():
-        # TODO: write me! sth like the following, but this needs testing:
-        #subprocess.Popen("%s" %(_batch_quote(exe)),
-        #                 shell=False)
-        #sys.exit(0)
-        raise NotImplementedError
+        # we don't need to implement this, on windows the external process manage_install.exe
+        # also takes care of restarting us.
+        raise RuntimeError("Can't use restart_app on windows. The manage_install.exe process already "
+                           "takes care of that.")
 
     else:
         logger.warning("I don't know about your platform. You'll have to restart this "

@@ -85,9 +85,11 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
 
     def ask_to_update(self, rel_info):
         msgBox = QMessageBox(parent=None)
+        msgBox.setWindowModality(Qt.NonModal)
         msgBox.setText(unicode(self.tr("A new software update is available (%sversion %s)."))
                        %(self.progname+' ' if self.progname else '', rel_info.get_version()))
-        msgBox.setInformativeText(self.tr("Do you want to install the new version?"))
+        msgBox.setInformativeText(self.tr("Do you want to install the new version? Please make sure you save all "
+                                          "your changes to your files before installing the update."))
         btnInstall = msgBox.addButton("Install", QMessageBox.AcceptRole)
         btnNotNow = msgBox.addButton("Not now", QMessageBox.RejectRole)
         btnDisableUpdates = msgBox.addButton("Disable Update Checks", QMessageBox.RejectRole)
@@ -113,6 +115,7 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         
     def ask_to_restart(self):
         msgBox = QMessageBox(parent=None)
+        msgBox.setWindowModality(Qt.NonModal)
         msgBox.setText(self.tr("The software update is now complete."))
         msgBox.setInformativeText(self.tr("This program needs to be restarted for the changes "
                                           "to take effect. Restart now?"))

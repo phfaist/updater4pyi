@@ -206,19 +206,28 @@ def _maybe_compile_re(r, flags=re.IGNORECASE):
     return re.compile(r, flags)
 
 
-_RX_VER = r'(-(?P<version>[\w]+))?'
+_RX_VER = r'-(?P<version>[\w]+)'
+_RX_VER_OPT = '('+_RX_VER+')?'
 _RX_PLAT = r'-(?P<platform>macosx|linux|win)'
+_RX_PLAT_OPT = '('+_RX_PLAT+')?'
 
 _default_naming_strategy_patterns = (
-    relpattern(_RX_VER+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+    relpattern(_RX_VER_OPT+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform='macosx', reltype=RELTYPE_BUNDLE_ARCHIVE),
-    relpattern(_RX_VER+_RX_PLAT+r'(-onedir)?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+               platform='macosx',
+               reltype=RELTYPE_BUNDLE_ARCHIVE),
+    relpattern(_RX_VER_OPT+_RX_PLAT+r'(-onedir)?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform').lower(), reltype=RELTYPE_ARCHIVE),
-    relpattern(_RX_VER+_RX_PLAT+r'(\.(exe|bin|run))?$',
+               platform=lambda m: m.group('platform').lower(),
+               reltype=RELTYPE_ARCHIVE),
+    relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'\.exe$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform').lower(), reltype=RELTYPE_EXE),
+               platform=lambda m: m.group('platform').lower() if m.group('platform') else "win",
+               reltype=RELTYPE_EXE),
+    relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'(\.(bin|run))?$',
+               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+               platform=lambda m: m.group('platform').lower() if m.group('platform') else "linux",
+               reltype=RELTYPE_EXE),
     )
 
 # maybe e.g.
@@ -289,8 +298,9 @@ class UpdateLocalDirectorySource(UpdateSource):
 
             # list files in that directory.
             for fn in os.listdir(base):
+                fnurl = util.path2url(os.path.join(base,fn))
                 inf = self.naming_strategy.get_release_info(filename=fn,
-                                                            url='file://'+os.path.join(base, fn),
+                                                            url=fnurl,
                                                             version=ver,
                                                             )
                 if inf is not None:

@@ -36,6 +36,7 @@ import re
 import subprocess
 import logging
 import inspect
+import urllib
 
 logger = logging.getLogger('updater4pyi')
 
@@ -105,6 +106,18 @@ def resource_path(relative_path):
 # ------------
 
 
+def path2url(p):
+    x = urllib.pathname2url(p)
+    if not x.startswith('///'):
+        x = "//"+os.path.abspath(x)
+    return 'file:'+x
+    
+    
+
+
+# ------------
+
+
 def run_as_admin(argv):
     cmd = [];
     if is_macosx():
@@ -150,7 +163,13 @@ def run_as_admin(argv):
 #
 # code inspired from http://stackoverflow.com/a/19719292/1694896
 #
-def _run_as_admin_win(argv, wait=True):
+def run_win(argv, needs_sudo=False, wait=True, cwd=None):
+    """
+    Run a process on windows.
+
+    Returns: the exit code of the process if `wait` is `True`, or the PID of the running
+    process if `wait` is `False`.
+    """
 
     if os.name != 'nt':
         raise RuntimeError, "This function is only implemented on Windows."
@@ -159,14 +178,18 @@ def _run_as_admin_win(argv, wait=True):
     from win32com.shell.shell import ShellExecuteEx
     from win32com.shell import shellcon
 
-    cmd = winshell_quote(argv[0])
     # XXX TODO: isn't there a function or something we can call to massage command line params?
+    cmd = winshell_quote(argv[0])
     params = " ".join([winshell_quote(x) for x in argv[1:]])
     
     cmdDir = ''
     showCmd = win32con.SW_SHOWNORMAL
     #showCmd = win32con.SW_HIDE
-    lpVerb = 'runas'  # causes UAC elevation prompt.
+
+    if needs_sudo:
+        lpVerb = 'runas'  # causes UAC elevation prompt.
+    else:
+        lpVerb = 'open' # just open the application
 
     logger.debug("running %s %s", cmd, params)
 
@@ -176,11 +199,17 @@ def _run_as_admin_win(argv, wait=True):
 
     # procHandle = win32api.ShellExecute(0, lpVerb, cmd, params, cmdDir, showCmd)
 
+    optional_args = {}
+    if (cwd is not None):
+        optional_args['lpDirectory'] = cwd
+
     procInfo = ShellExecuteEx(nShow=showCmd,
                               fMask=shellcon.SEE_MASK_NOCLOSEPROCESS,
                               lpVerb=lpVerb,
                               lpFile=cmd,
-                              lpParameters=params)
+                              lpParameters=params,
+                              **optional_args
+                              )
 
     if wait:
         procHandle = procInfo['hProcess']    
@@ -188,7 +217,8 @@ def _run_as_admin_win(argv, wait=True):
         rc = win32process.GetExitCodeProcess(procHandle)
         logger.debug("Process handle %s returned code %s", (procHandle, rc))
     else:
-        rc = None
+        # get PID
+        rc = win32process.GetProcessId(procInfo['hProcess']);
 
     return rc
 
