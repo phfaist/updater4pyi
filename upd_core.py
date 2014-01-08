@@ -377,7 +377,23 @@ def install_update(rel_info):
     # ...
 
     # detect if admin rights are needed.
-    needs_sudo = not os.access(filetoupdate.fn, os.W_OK);
+    if not util.is_win():
+        needs_sudo = not os.access(filetoupdate.fn, os.W_OK);
+    else:
+        needs_sudo = True
+        try:
+            with open(filetoupdate.executable, 'r+') as f:
+                pass
+            needs_sudo = False
+        except OSError:
+            # the file is write-protected
+            needs_sudo = True
+
+    # ###FIXME: os.access() does not work as expected on windows. Solution: try
+    #           open(filetoupdate.executable, 'r+') in a `try / except OSError` block?
+
+
+    
 
     # determine if we will work in the temporary dir only and call an external utility (e.g. do_install.exe)
     # or if we will directly unpack e.g. the zip file at the right location.
