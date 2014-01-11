@@ -41,6 +41,18 @@ import urllib
 logger = logging.getLogger('updater4pyi')
 
 
+# -------------------------------------
+
+
+def ignore_exc(f, exc=(Exception,), value_if_exc=None):
+    if (not isinstance(exc, tuple)):
+        exc = (exc,);
+    try:
+        return f()
+    except exc:
+        return value_if_exc
+
+
 
 
 # ------------------------------------
@@ -131,9 +143,9 @@ def run_as_admin(argv):
         # repeated use of which() is ok because it caches result
         if which('pkexec'):
             cmd = [which('pkexec')] + argv
-        elif which('gksudo'):
+        elif os.environ.get('DISPLAY') and which('gksudo'):
             cmd = [which('gksudo')] + argv
-        elif which('kdesudo'):
+        elif os.environ.get('DISPLAY') and which('kdesudo'):
             cmd = [which('kdesudo')] + argv
         elif os.environ.get('DISPLAY') and which('xterm'):
             cmd = [which('xterm'), '-e', 'sudo'] + argv

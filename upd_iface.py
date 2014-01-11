@@ -39,15 +39,16 @@ import logging
 
 from . import util
 from . import upd_core
+from .upd_core import Updater4PyiError
 
 
 logger = logging.getLogger('updater4pyi')
 
 
 class UpdateInterface(object):
-    def __init__(self, progname=None, **pwargs):
+    def __init__(self, progname=None, **kwargs):
         self.progname = progname
-        pass
+        super(UpdateInterface, self).__init__(**kwargs)
 
     def start(self, **kwargs):
         """
@@ -184,18 +185,35 @@ def restart_app(exe=None):
 
 class UpdateConsoleInterface(UpdateInterface):
     def __init__(self, ask_before_checking=False, **kwargs):
-        super(UpdateConsoleInterface, self).__init__(self, **kwargs)
+        super(UpdateConsoleInterface, self).__init__(**kwargs)
         self.ask_before_checking = ask_before_checking
 
     def start(self):
 
+        try:
+            
+            self._runupdatecheck();
+            
+        except Updater4PyiError as e:
+            print "\n"
+            print "------------------------------------------------------------"
+            print "Error: %s" % (e)
+            print "Software update aborted."
+            print "------------------------------------------------------------"
+            print "\n"
+            return
+
+        # return to the main program.
+        return
+
+    def _runupdatecheck(self):
         #
         # See if we should ask before checking.
         #
         if (self.ask_before_checking):
             if (not self._ynprompt("Do you wish to check for software updates? (y/n) ")):
                 return
-            
+
         #
         # Check for updates.
         #
@@ -212,7 +230,8 @@ class UpdateConsoleInterface(UpdateInterface):
         print ""
         print "-----------------------------------------------------------"
         print ""
-        print "A new software update is available (%s version %s)" %(self.progname, upd_info.version)
+        print ("A new software update is available (%sversion %s)"
+               % (self.progname+" " if self.progname else "", upd_info.version))
         print ""
 
         if (self._ynprompt("Do you want to install it? (y/n) ")):
@@ -235,9 +254,7 @@ class UpdateConsoleInterface(UpdateInterface):
             print ""
             print "-----------------------------------------------------------"
             print ""
-
-        # return to the main program.
-        return
+        
         
     def _ynprompt(self, msg):
         yn = raw_input(msg)

@@ -376,19 +376,23 @@ def install_update(rel_info):
     # TODO: add support for download verifyer (MD5/SHA or GPG signature)
     # ...
 
-
     # detect if admin rights are needed.
-    #if not util.is_win():
-    #    needs_sudo = not os.access(filetoupdate.fn, os.W_OK);
-    #else:
-    if True:
+    if not util.is_win():
+        needs_sudo = not (os.access(filetoupdate.fn, os.W_OK) and
+                          os.access(os.path.dirname(filetoupdate.fn), os.W_OK))
+    else:
+        # NOTE: This does not work under linux, because we get eg. the error
+        #       IOError: [Errno 26] Text file busy: '/home/..../dist/testpycmdline/testpycmdline'
+        logger.debug("determining whether we need sudo: try opening %s as 'r+'.", filetoupdate.executable);
         needs_sudo = True
         try:
             with open(filetoupdate.executable, 'r+') as f:
                 pass
+            logger.debug("no sudo needed.");
             needs_sudo = False
         except IOError:
             # the file is write-protected
+            logger.debug("file is write-protected: sudo will be needed.");
             needs_sudo = True
 
 
@@ -402,35 +406,62 @@ def install_update(rel_info):
 
     logger.debug("installation will need sudo? %s", needs_sudo)
 
+    reltype_is_dir = filetoupdate.reltype in (RELTYPE_BUNDLE_ARCHIVE,
+                                              RELTYPE_ARCHIVE);
+
+    extractedfile = None
+    installto = None
+    extractloc = None
+
+
+    def cleanuptempfiles():
+
+        if (tmpfile.name and os.path.exists(tmpfile.name)):
+            logger.debug("cleaning up maybe %s", tmpfile.name)
+            util.ignore_exc(lambda : os.unlink(tmpfile.name), OSError)
+        
+        if extractloc is not None and extractloc.extracttotemp and os.path.exists(extractloc.extractto):
+            logger.debug("cleaning up maybe %s", extractloc.extractto)
+            util.ignore_exc(lambda : shutil.rmtree(extractloc.extractto), OSError)
+
+
+
     # move that file out of the way, but keep it as backup. So just rename it.
     backupfilename = _backupname(filetoupdate.fn)
     if not needs_work_in_temp_dir:
         try:
             os.rename(filetoupdate.fn, backupfilename);
         except OSError as e:
+            cleanuptempfiles();
             raise Updater4PyiError("Failed to rename file %s!" %(str(e)))
 
-    def restorebackup():
+        
+
+    def failure_cleanupandrestorebackup():
+        # files may have been downloaded/extracted to some location
+
+        cleanuptempfiles()
+
+        if extractedfile and os.path.exists(extractedfile):
+            logger.debug("cleaning up maybe %s", extractedfile)
+            util.ignore_exc(lambda : shutil.rmtree(extractedfile), OSError)
+
         if needs_work_in_temp_dir:
             # no backup was generated anyway at this point
             return
+
+        logger.debug("cleaning up maybe %s", filetoupdate.fn)
+        util.ignore_exc(lambda : shutil.rmtree(filetoupdate.fn), OSError)
+
         try:
-            shutil.rmtree(filetoupdate.fn)
-        except OSError:
-            # ignore
-            pass
-        try:
+            logger.debug("restoring backup %s -> %s", backupfilename, filetoupdate.fn)
             shutil.move(backupfilename, filetoupdate.fn)
         except OSError as e:
             logger.error("Software Update Error: Failed to restore backup %s of %s! %s\n"
                          % (backupfilename, filetoupdate.fn, str(e)))
-            pass
 
-    reltype_is_dir = filetoupdate.reltype in (RELTYPE_BUNDLE_ARCHIVE,
-                                              RELTYPE_ARCHIVE);
+        return
 
-    extractedfile = None
-    installto = None
 
     try:
         if (reltype_is_dir):
@@ -529,7 +560,7 @@ def install_update(rel_info):
             if util.is_linux() or util.is_macosx():
                 res = util.run_as_admin([util.which('bash'),
                                          util.resource_path('updater4pyi/installers/unix/do_install.sh'),
-                                         extractto, installto, backupfilename])
+                                         filetoupdate.fn, backupfilename, extractedfile, installto])
                 if (res != 0):
                     raise Updater4PyiError("Can't install the update to the final location %s!" %(installto))
             elif util.is_win():
@@ -567,16 +598,29 @@ def install_update(rel_info):
 
     except Exception:
         logger.error("Software Update Error: %s\n" %(str(sys.exc_info()[1])));
-        restorebackup()
+        failure_cleanupandrestorebackup()
         raise
 
-    logger.warning("For debugging & possible unstability, NOT removing backup.")
+    # cleaning up temp files
+    logger.debug("cleaning up temp files")
+    cleanuptempfiles()
+    
     # remove the backup.
-    #if not needs_work_in_temp_dir:
-        #if (reltype_is_dir):
-        #    shutil.rmtree(backupfilename)
-        #else
-        #    os.unlink(backupfilename)
+    if not needs_work_in_temp_dir:
+        #DEBUG: logger.warning("For debugging & possible unstability, NOT removing backup.")
+        if (reltype_is_dir):
+            logger.debug("removing backup directory %s", backupfilename)
+            try:
+                shutil.rmtree(backupfilename)
+            except (OSError,IOError):
+                logger.warning("Failed to remove backup directory %s !", backupfilename)
+                # e.g. this might happen if the executable is on some filesystems such as sshfs
+        else:
+            logger.debug("removing backup file %s", backupfilename)
+            try:
+                os.unlink(backupfilename)
+            except (OSError,IOError):
+                logger.warning("Failed to remove backup file %s !", backupfilename)
     
     
 
@@ -596,7 +640,7 @@ def download_file(theurl, fdst):
 
     global url_opener
 
-    logger.debug("fetching URL %s to temp file %s ...", theurl, _noexcept(lambda : fdst.name))
+    logger.debug("fetching URL %s to temp file %s ...", theurl, util.ignore_exc(lambda : fdst.name))
 
     fdata = url_opener.open(theurl);
     shutil.copyfileobj(fdata, fdst)
@@ -606,12 +650,6 @@ def download_file(theurl, fdst):
     logger.debug("... done.")
 
 
-
-def _noexcept(f):
-    try:
-        return f()
-    except:
-        return None
 
 
 
