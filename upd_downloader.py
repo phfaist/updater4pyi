@@ -32,31 +32,55 @@
 
 import logging
 
+import httplib
+import ssl
+import socket
+import shutil
+import urllib2
 
-# the logger.
-# Note that we can do 'from upd_log import logger'
-logger = logging.getLogger('updater4pyi');
+from . import upd_version
+from . import util
+from .upd_log import logger
 
 
-# the formatter
-formatter = logging.Formatter('%(name)s - %(asctime)-15s\n\t%(levelname)s: %(message)s');
+# -------------------------------
+
+CERT_FILE = util.resource_path('updater4pyi/cacert.pem');#'root.crt');
+
+class ValidHTTPSConnection(httplib.HTTPConnection):
+    """
+    HTTPS connection based on httplib.HTTPConnection, with certificate validation.
+    """
+
+    default_port = httplib.HTTPS_PORT
+
+    def __init__(self, *args, **kwargs):
+        httplib.HTTPConnection.__init__(self, *args, **kwargs)
+
+    def connect(self):
+        """
+        Connect to a host on a given (SSL) port.
+        """
+
+        logger.debug("Connecting via HTTPS to %s:%d.", self.host, self.port)
+        
+        sock = socket.create_connection((self.host, self.port),
+                                        self.timeout, self.source_address)
+        if self._tunnel_host:
+            self.sock = sock
+            self._tunnel()
+        self.sock = ssl.wrap_socket(sock,
+                                    ca_certs=CERT_FILE,
+                                    cert_reqs=ssl.CERT_REQUIRED)
+
+
+class ValidHTTPSHandler(urllib2.HTTPSHandler):
+
+    def https_open(self, req):
+            return self.do_open(ValidHTTPSConnection, req)
 
 
 
-def setup_logger(level=logging.INFO):
-    
-    # create console handler
-    ch = logging.StreamHandler();
-    ch.setLevel(logging.NOTSET); # propagate all messages
-    
-    # add the formatter to the handler
-    ch.setFormatter(formatter);
-    
-    # add the handlers to the logger
-    logger.addHandler(ch);
+url_opener = urllib2.build_opener(ValidHTTPSHandler)
+url_opener.addheaders = [('User-agent', 'Updater4Pyi-SoftwareUpdater %s'%(upd_version.version_str))]
 
-    # set the logger's level
-    logger.setLevel(level);
-
-    logger.debug("logger set up. level=%d", level)
-    

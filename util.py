@@ -37,6 +37,7 @@ import subprocess
 import logging
 import inspect
 import urllib
+import datetime
 
 logger = logging.getLogger('updater4pyi')
 
@@ -52,6 +53,81 @@ def ignore_exc(f, exc=(Exception,), value_if_exc=None):
     except exc:
         return value_if_exc
 
+
+# -------------------------------------
+
+
+
+
+
+
+_TIMEDELTA_RX = r'''(?xi)
+    (?P<num>\d+)\s*
+    (?P<unit>
+        y(ears?)?|
+        mon(ths?)?|
+        weeks?|
+        days?|
+        hours?|
+        min(utes?)?|
+        s(ec(onds?)?)?
+    )
+    (,\s*)?
+    ''';
+_timedelta_units = {'y':    datetime.timedelta(days=365,seconds=0, microseconds=0),
+                    'mon':  datetime.timedelta(days=30, seconds=0, microseconds=0),
+                    'week': datetime.timedelta(days=7,  seconds=0, microseconds=0),
+                    'day':  datetime.timedelta(days=1,  seconds=0, microseconds=0),
+                    'hour': datetime.timedelta(days=0,  seconds=3600, microseconds=0),
+                    'min':  datetime.timedelta(days=0,  seconds=60, microseconds=0),
+                    's':    datetime.timedelta(days=0,  seconds=1, microseconds=0),
+                    }
+
+def ensure_timedelta(x):
+    if isinstance(x, datetime.timedelta):
+        return x
+    
+    if isinstance(x, basestring):
+        val = datetime.timedelta(0)
+        for m in re.finditer(_TIMEDELTA_RX, x):
+            thisvallst = [ v for k,v in _timedelta_units.iteritems()
+                           if k.lower().startswith(m.group('unit')) ]
+            if not thisvallst: raise ValueError("Unexpected unit: %s" %(m.group('unit')))
+            val += int(m.group('num')) * thisvallst[0]
+        return val
+
+    try:
+        sec = int(x)
+        musec = (x-int(x))*1e6
+        return datetime.timedelta(0, sec, musec)
+    except ValueError:
+        pass
+    
+    raise ValueError("Unable to parse timedelta representation: %r" %(x))
+
+
+def ensure_datetime(x):
+    if isinstance(x, datetime.datetime):
+        return x
+
+    if isinstance(x, basestring):
+        try:
+            import dateutil.parser
+            return dateutil.parser.parse(x)
+        except ImportError:
+            pass
+
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f',
+                    '%Y-%m-%dT%H:%M:%S',
+                    ):
+            try:
+                return datetime.strptime(x, fmt)
+            except ValueError:
+                pass
+        raise ValueError("Can't parse date/time : %s" %(x))
+
+    raise ValueError("Can't parse date/time: unknown type: %r" %(x))
+        
 
 
 

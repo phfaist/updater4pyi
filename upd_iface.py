@@ -33,20 +33,17 @@ import re
 import sys
 import os
 import os.path
-import subprocess
 import datetime
-import logging
 
 from . import util
-from . import upd_core
-from .upd_core import Updater4PyiError
+from .upd_defs import Updater4PyiError
+from .upd_log import logger
 
-
-logger = logging.getLogger('updater4pyi')
 
 
 class UpdateInterface(object):
-    def __init__(self, progname=None, **kwargs):
+    def __init__(self, updater, progname=None, **kwargs):
+        self.updater = updater
         self.progname = progname
         super(UpdateInterface, self).__init__(**kwargs)
 
@@ -62,121 +59,6 @@ class UpdateInterface(object):
 
 
 
-# ---------------------------------------------------------------
-
-
-
-
-_TIMEDELTA_RX = r'''(?xi)
-    (?P<num>\d+)\s*
-    (?P<unit>
-        y(ears?)?|
-        mon(ths?)?|
-        weeks?|
-        days?|
-        hours?|
-        min(utes?)?|
-        s(ec(onds?)?)?
-    )
-    (,\s*)?
-    ''';
-_timedelta_units = {'y':    datetime.timedelta(days=365,seconds=0, microseconds=0),
-                    'mon':  datetime.timedelta(days=30, seconds=0, microseconds=0),
-                    'week': datetime.timedelta(days=7,  seconds=0, microseconds=0),
-                    'day':  datetime.timedelta(days=1,  seconds=0, microseconds=0),
-                    'hour': datetime.timedelta(days=0,  seconds=3600, microseconds=0),
-                    'min':  datetime.timedelta(days=0,  seconds=60, microseconds=0),
-                    's':    datetime.timedelta(days=0,  seconds=1, microseconds=0),
-                    }
-
-def ensure_timedelta(x):
-    if isinstance(x, datetime.timedelta):
-        return x
-    
-    if isinstance(x, basestring):
-        val = datetime.timedelta(0)
-        for m in re.finditer(_TIMEDELTA_RX, x):
-            thisvallst = [ v for k,v in _timedelta_units.iteritems()
-                           if k.lower().startswith(m.group('unit')) ]
-            if not thisvallst: raise ValueError("Unexpected unit: %s" %(m.group('unit')))
-            val += int(m.group('num')) * thisvallst[0]
-        return val
-
-    try:
-        sec = int(x)
-        musec = (x-int(x))*1e6
-        return datetime.timedelta(0, sec, musec)
-    except ValueError:
-        pass
-    
-    raise ValueError("Unable to parse timedelta representation: %r" %(x))
-
-
-def ensure_datetime(x):
-    if isinstance(x, datetime.datetime):
-        return x
-
-    if isinstance(x, basestring):
-        try:
-            import dateutil.parser
-            return dateutil.parser.parse(x)
-        except ImportError:
-            pass
-
-        for fmt in ('%Y-%m-%dT%H:%M:%S.%f',
-                    '%Y-%m-%dT%H:%M:%S',
-                    ):
-            try:
-                return datetime.strptime(x, fmt)
-            except ValueError:
-                pass
-        raise ValueError("Can't parse date/time : %s" %(x))
-
-    raise ValueError("Can't parse date/time: unknown type: %r" %(x))
-        
-
-
-# utility: restart this application
-
-def restart_app(exe=None):
-
-    from . import upd_core
-
-    file_to_update = upd_core.file_to_update()
-
-    if (exe is None):
-        exe = file_to_update.executable
-
-    # the exe_cmd
-    
-    if util.is_macosx() or util.is_linux():
-        exe_cmd = util.bash_quote(exe)
-
-        if (util.is_macosx() and
-            exe == file_to_update.executable and
-            file_to_update.fn.endswith('.app')):
-            # Mac OS X, we are launching this exact executable, which is known to be a .app;
-            # --> use 'open FooBar.app' instead.
-            exe_cmd = 'open '+util.bash_quote(file_to_update.fn) # the .app
-
-        this_pid = os.getpid()
-        subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; ( %s & )"
-                         %(this_pid, exe_cmd),
-                         shell=True)
-        sys.exit(0)
-        
-    elif util.is_win():
-        # we don't need to implement this, on windows the external process manage_install.exe
-        # also takes care of restarting us.
-        raise RuntimeError("Can't use restart_app on windows. The manage_install.exe process already "
-                           "takes care of that.")
-
-    else:
-        logger.warning("I don't know about your platform. You'll have to restart this "
-                       "program by yourself like a grown-up. I'm exiting now! Have fun.")
-        sys.exit(0)
-
-
 
 # -----------
 
@@ -184,9 +66,10 @@ def restart_app(exe=None):
 
 
 class UpdateConsoleInterface(UpdateInterface):
-    def __init__(self, ask_before_checking=False, **kwargs):
-        super(UpdateConsoleInterface, self).__init__(**kwargs)
+    def __init__(self, updater, ask_before_checking=False, **kwargs):
+        super(UpdateConsoleInterface, self).__init__(updater=updater, **kwargs)
         self.ask_before_checking = ask_before_checking
+
 
     def start(self):
 
@@ -206,6 +89,7 @@ class UpdateConsoleInterface(UpdateInterface):
         # return to the main program.
         return
 
+
     def _runupdatecheck(self):
         #
         # See if we should ask before checking.
@@ -217,7 +101,7 @@ class UpdateConsoleInterface(UpdateInterface):
         #
         # Check for updates.
         #
-        upd_info = upd_core.check_for_updates()
+        upd_info = self.updater.check_for_updates()
 
         if (upd_info is None):
             # no updates.
@@ -238,7 +122,7 @@ class UpdateConsoleInterface(UpdateInterface):
             #
             # yes, install update
             #
-            upd_core.install_update(upd_info)
+            self.updater.install_update(upd_info)
             #
             # update installed.
             #
@@ -276,7 +160,8 @@ _SETTINGS_ALL = ['check_for_updates_enabled', 'init_check_delay', 'check_interva
                  'last_check']
 
 class UpdateGenericGuiInterface(UpdateInterface):
-    def __init__(self, **kwargs):
+    def __init__(self, updater, **kwargs):
+        super(UpdateGenericGuiInterface, self).__init__(updater, **kwargs)
         
         self.update_installed = False
         self.is_initial_delay = True
@@ -285,13 +170,11 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
         # load settings
         d = self.load_settings(_SETTINGS_ALL)
-        self.init_check_delay = ensure_timedelta(d.get('init_check_delay', DEFAULT_INIT_CHECK_DELAY))
-        self.check_interval = ensure_timedelta(d.get('check_interval', DEFAULT_CHECK_INTERVAL))
+        self.init_check_delay = util.ensure_timedelta(d.get('init_check_delay', DEFAULT_INIT_CHECK_DELAY))
+        self.check_interval = util.ensure_timedelta(d.get('check_interval', DEFAULT_CHECK_INTERVAL))
         self.check_for_updates_enabled = d.get('check_for_updates_enabled', True)
-        self.last_check = ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
+        self.last_check = util.ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
         
-        super(UpdateGenericGuiInterface, self).__init__(**kwargs)
-
     
     def start(self):
         logger.debug("Starting interface (generic gui)")
@@ -304,14 +187,14 @@ class UpdateGenericGuiInterface(UpdateInterface):
         return self.init_check_delay
 
     def setInitCheckDelay(self, init_check_delay, save=True):
-        self.init_check_delay = ensure_timedelta(init_check_delay)
+        self.init_check_delay = util.ensure_timedelta(init_check_delay)
         if save: self.save_settings({'init_check_delay': self.init_check_delay})
 
     def checkInterval(self):
         return self.check_interval
 
     def setCheckInterval(self, check_interval, save=True):
-        self.check_interval = ensure_timedelta(check_interval)
+        self.check_interval = util.ensure_timedelta(check_interval)
         if save: self.save_settings({'check_interval': self.check_interval})
 
     def checkForUpdatesEnabled(self):
@@ -328,7 +211,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
         return self.last_check
 
     def setLastCheck(self, last_check, save=True):
-        self.last_check = ensure_datetime(last_check)
+        self.last_check = util.ensure_datetime(last_check)
         if save: self.save_settings({'last_check': self.last_check})
 
     # ------------
@@ -377,42 +260,53 @@ class UpdateGenericGuiInterface(UpdateInterface):
                 return
 
             try:
-                # check for updates
-
-                rel_info = upd_core.check_for_updates()
-
-                if (rel_info is None):
-                    # no updates.
-                    logger.debug("UpdateGenericGuiInterface: No updates available.")
-                    return
-
-                #
-                # There's an update, prompt the user.
-                #
-                if self.ask_to_update(rel_info):
-                    #
-                    # yes, install update
-                    #
-                    upd_core.install_update(rel_info)
-                    self.update_installed = True
-                    #
-                    # update installed.
-                    #
-                    if self.ask_to_restart():
-                        restart_app()
-                        return
-                    #
-                else:
-                    logger.debug("UpdateGenericGuiInterface: Not installing update.")
-
-                # return to the main program.
-                return
+                self.do_check_for_updates()
             finally:
-                self.last_check = datetime.datetime.now()
-                self.save_settings({'last_check': self.last_check})
                 self.schedule_next_update_check()
         finally:
             self.is_currently_checking = False
+
+
+    def do_check_for_updates(self):
+        try:
+            # check for updates
+
+            rel_info = self.updater.check_for_updates()
+
+            if (rel_info is None):
+                # no updates.
+                logger.debug("UpdateGenericGuiInterface: No updates available.")
+                return
+
+            #
+            # There's an update, prompt the user.
+            #
+            if self.ask_to_update(rel_info):
+                #
+                # yes, install update
+                #
+                self.updater.install_update(rel_info)
+                self.update_installed = True
+                #
+                # update installed.
+                #
+                if self.ask_to_restart():
+                    self.updater.restart_app()
+                    return
+                #
+            else:
+                logger.debug("UpdateGenericGuiInterface: Not installing update.")
+
+            # return to the main program.
+            return
+        
+        except Updater4PyiError as e:
+            logger.warning("Error while checking for updates: %s", e)
+            
+        finally:
+            self.last_check = datetime.datetime.now()
+            self.save_settings({'last_check': self.last_check})
+
 
     def is_check_now_due(self, tolerance=datetime.timedelta(days=0, seconds=10)):
         return (self.check_for_updates_enabled and
@@ -444,9 +338,9 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
 
 
-    # --------------------------------------------------------------------------
-    # the following methods need to be reimplemented, using the toolkit at hand.
-    # --------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------
+    # the following methods need to be reimplemented, using the gui toolkit at hand.
+    # ------------------------------------------------------------------------------
     
 
     def ask_to_update(self, rel_info):

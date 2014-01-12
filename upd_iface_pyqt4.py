@@ -29,28 +29,26 @@
 #                                                                                     #
 #######################################################################################
 
-import logging
 import datetime
 
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
-import upd_core
-import upd_iface
-
-logger = logging.getLogger('updater4pyi')
+from . import upd_core
+from . import upd_iface
+from .upd_log import logger
 
 
 
 
 class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
 
-    def __init__(self, parent=None, **kwargs):
+    def __init__(self, updater, parent=None, **kwargs):
         self.timer = None
         
         QObject.__init__(self, parent=parent)
         # super doesn't propagate out of the Qt multiple inheritance...
-        upd_iface.UpdateGenericGuiInterface.__init__(self, **kwargs)
+        upd_iface.UpdateGenericGuiInterface.__init__(self, updater, **kwargs)
 
 
     # ------------
@@ -125,10 +123,14 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         
     def ask_to_restart(self):
         msgBox = QMessageBox(parent=None)
-        msgBox.setWindowModality(Qt.NonModal)
+        #msgBox.setWindowModality(Qt.NonModal)
         msgBox.setText(self.tr("The software update is now complete."))
-        msgBox.setInformativeText(self.tr("This program needs to be restarted for the changes "
-                                          "to take effect. Restart now?"))
+        
+        thisprog = str(self.tr("This program"))
+        if (self.progname):
+            thisprog = str('<b>'+Qt.escape(self.progname)+'</b>');
+        msgBox.setInformativeText(str(self.tr("%s needs to be restarted for the changes "
+                                              "to take effect. Restart now?")) % (thisprog))
         btnRestart = msgBox.addButton("Restart", QMessageBox.AcceptRole)
         btnIgnore = msgBox.addButton("Ignore", QMessageBox.RejectRole)
 

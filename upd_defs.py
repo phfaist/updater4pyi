@@ -3,7 +3,7 @@
 #                                                                                     #
 #   This file is part of the updater4pyi Project.                                     #
 #                                                                                     #
-#   Copyright (C) 2013, Philippe Faist                                                #
+#   Copyright (C) 2014, Philippe Faist                                                #
 #   philippe.faist@bluewin.ch                                                         #
 #   All rights reserved.                                                              #
 #                                                                                     #
@@ -30,33 +30,27 @@
 #######################################################################################
 
 
-import logging
+
+# ------------------------------------------------------------------------
+
+# our exception class
+
+class Updater4PyiError(Exception):
+    def __init__(self, msg):
+        self.updater_msg = msg
+        Exception.__init__(self, 'Software Updater Error: '+msg);
 
 
-# the logger.
-# Note that we can do 'from upd_log import logger'
-logger = logging.getLogger('updater4pyi');
 
 
-# the formatter
-formatter = logging.Formatter('%(name)s - %(asctime)-15s\n\t%(levelname)s: %(message)s');
+# ------------------------------------------------------------------------
+
+# release package types
 
 
+RELTYPE_UNKNOWN = 0
+RELTYPE_EXE = 1
+RELTYPE_ARCHIVE = 2
+RELTYPE_BUNDLE_ARCHIVE = 3
 
-def setup_logger(level=logging.INFO):
-    
-    # create console handler
-    ch = logging.StreamHandler();
-    ch.setLevel(logging.NOTSET); # propagate all messages
-    
-    # add the formatter to the handler
-    ch.setFormatter(formatter);
-    
-    # add the handlers to the logger
-    logger.addHandler(ch);
 
-    # set the logger's level
-    logger.setLevel(level);
-
-    logger.debug("logger set up. level=%d", level)
-    

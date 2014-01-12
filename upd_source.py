@@ -41,12 +41,13 @@ import inspect
 import urllib2
 
 from . import util
-from . import upd_core
-from .upd_core import RELTYPE_UNKNOWN, RELTYPE_EXE, RELTYPE_ARCHIVE, RELTYPE_BUNDLE_ARCHIVE
-from .upd_core import Updater4PyiError
+from .upd_defs import RELTYPE_UNKNOWN, RELTYPE_EXE, RELTYPE_ARCHIVE, RELTYPE_BUNDLE_ARCHIVE
+from .upd_defs import Updater4PyiError
+from . import upd_downloader
+from .upd_log import logger
 
 
-logger = logging.getLogger('updater4pyi')
+# ---------------------------------------------------------------------
 
 
 class BinReleaseInfo(object):
@@ -297,7 +298,23 @@ class UpdateSourceDevelopmentReleasesFilter(object):
 
 class UpdateLocalDirectorySource(UpdateSource):
     """
-    Updates will be searched for in a local directory. Used for debugging.
+    Updates will be searched for in a local directory. Useful for debugging.
+    
+    Will check in the given `source_directory` directory for updates. Files should be organized
+    in subdirectories which should be version names, e.g.
+
+    ::
+      1.0/
+        binary-macosx[.zip]
+        binary-linux[.zip]
+        binary-win[.exe|.zip]
+      1.1/
+        binary-macosx[.zip]
+        binary-linux[.zip]
+        binary-win[.exe|.zip]
+      ...
+
+    This updater source is mostly for debugging the module `updater4pyi`.
     """
     
     def __init__(self, source_directory, naming_strategy=None, *args, **kwargs):
@@ -329,12 +346,8 @@ class UpdateLocalDirectorySource(UpdateSource):
 
         logger.debug("get_releases(): Got version list: %r", versiondirs)
 
-        newer_than_version_parsed = util.parse_version(upd_core.current_version())
+        newer_than_version_parsed = util.parse_version(newer_than_version)
 
-        file_to_update = upd_core.file_to_update()
-
-        (fupdatedir, fupdatebasename) = os.path.split(file_to_update.fn)
-        
         inf_list = []
 
         for ver in versiondirs:
@@ -416,7 +429,7 @@ class UpdateGithubReleasesSource(UpdateSource):
         url = 'https://api.github.com/repos/'+self.github_user_repo+'/releases'
 
         try:
-            fdata = upd_core.url_opener.open(url)
+            fdata = upd_downloader.url_opener.open(url)
         except urllib2.URLError:
             logger.warning("Can't connect to github for software update check.")
             return None
