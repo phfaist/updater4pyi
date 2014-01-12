@@ -522,6 +522,13 @@ def install_update(rel_info):
             extractedfile = os.path.join(extractto, os.path.basename(filetoupdate.fn))
             installto = extractloc.installto
 
+            # also, check that we've extracted a valid archive which replaces the same file.
+            fnreltoextract = os.path.relpath(filetoupdate.executable, start=filetoupdate.fn);
+            if not os.path.exists(os.path.join(extractedfile, fnreltoextract)):
+                logger.error("Update package doesn't contain file %s in %s",
+                             fnreltoextract, extractedfile);
+                raise Updater4PyiError("Update package is malformed: can't find executable");
+
         else:
             # make sure the file is executable
             os.chmod(tmpfile.name,

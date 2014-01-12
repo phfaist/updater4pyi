@@ -56,7 +56,7 @@ class BinReleaseInfo(object):
                  **kwargs):
 
         if not version:
-            raise ValueError("BinReleaseInfo(): Version may not be None!")
+            raise ValueError("BinReleaseInfo(): version is not set!")
 
         self.version = version
         self.filename = filename
@@ -106,7 +106,25 @@ class UpdateSource(object):
     def __init__(self, *args, **kwargs):
         self.current_version = None
         self.file_to_update = None
+        self.release_filters = []
         super(UpdateSource, self).__init__(*args, **kwargs)
+
+
+    def add_release_filter(self, filt):
+        self.release_filters.append(filt)
+
+    def test_release_filters(self, relinfo):
+        """
+        Returns `True` if `relinfo` should be included in the releases given the installed filters,
+        otherwise `False`. Note that the platform and the version selection are not implemented by
+        filters. Filters are meant to choose between different editions, or to filter out/include
+        beta unstable releases.
+        """
+        for f in self.release_filters:
+            if not f(relinfo):
+                return False
+
+        return True
 
     # subclasses need to reimplement:
 
@@ -115,6 +133,9 @@ class UpdateSource(object):
         Should return a list of `BinReleaseInfo` of available releases. If `newer_than_version`
         argument is provided, then this function should ignore releases older or equal to the
         given argument.
+
+        Note that for filters to work, the subclass must explicitly test each candidate release
+        with `test_release_filters()`, and ignore the release if that function returns `False`.
         """
         raise NotImplementedError
 
@@ -207,7 +228,7 @@ def _maybe_compile_re(r, flags=re.IGNORECASE):
     return re.compile(r, flags)
 
 
-_RX_VER = r'-(?P<version>[\w]+)'
+_RX_VER = r'-(?P<version>\d+[\w.]+)'
 _RX_VER_OPT = '('+_RX_VER+')?'
 _RX_PLAT = r'-(?P<platform>macosx|linux|win)'
 _RX_PLAT_OPT = '('+_RX_PLAT+')?'
@@ -217,7 +238,7 @@ _default_naming_strategy_patterns = (
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
                platform='macosx',
                reltype=RELTYPE_BUNDLE_ARCHIVE),
-    relpattern(_RX_VER_OPT+_RX_PLAT+r'(-onedir)?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+    relpattern(_RX_VER_OPT+_RX_PLAT+r'(-(onedir|dist))?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
                platform=lambda m: m.group('platform').lower(),
                reltype=RELTYPE_ARCHIVE),
@@ -244,6 +265,30 @@ _default_naming_strategy_patterns = (
 
 
 
+# -------------------------------------------------------
+
+
+
+
+# simple filter for including/not including developemnt releases
+class UpdateSourceDevelopmentReleasesFilter(object):
+    def __init__(self, include_devel_releases=False, regexname=None):
+        self.include_devel_releases = include_devel_releases
+
+        self.regexname = regexname
+        if (self.regexname is None):
+            self.regexname = re.compile(r'(beta|alpha|rc)', re.IGNORECASE)
+
+    def includeDevelReleases(self):
+        return self.include_devel_releases;
+
+    def setIncludeDevelReleases(self, include):
+        self.include_devel_releases = include
+
+    def __call__(self, relinfo):
+        if (re.search(self.regexname, relinfo.get_version()) is not None):
+            return self.include_devel_releases
+        return True
 
 
 
@@ -282,6 +327,8 @@ class UpdateLocalDirectorySource(UpdateSource):
             logger.warning("Can't list directory %s", self.source_directory)
             raise Updater4PyiError("Can't explore directory %s" %(self.source_directory))
 
+        logger.debug("get_releases(): Got version list: %r", versiondirs)
+
         newer_than_version_parsed = util.parse_version(upd_core.current_version())
 
         file_to_update = upd_core.file_to_update()
@@ -312,7 +359,7 @@ class UpdateLocalDirectorySource(UpdateSource):
                                                                 url=fnurl,
                                                                 version=ver,
                                                                 )
-                    if inf is not None:
+                    if inf is not None and self.test_release_filters(inf):
                         inf_list.append(inf)
             except OSError:
                 logger.warning("Can't list directory %s", base)
@@ -421,19 +468,19 @@ class UpdateGithubReleasesSource(UpdateSource):
                 # build up the download URL
                 relurl = 'https://github.com/'+self.github_user_repo+'/releases/download/'+tag_name+'/'+relfn;
 
-                inf_list.append(
-                    self.naming_strategy.get_release_info(filename=relfn,
-                                                          url=relurl,
-                                                          version=relver,
-                                                          # additional info:
-                                                          rel_name=rel_name,
-                                                          relfile_label=rellabel,
-                                                          rel_description=rel_desc,
-                                                          relfile_content_type=relcontenttype,
-                                                          rel_tag_name=tag_name,
-                                                          rel_html_url=html_url,
-                                                          )
-                    )
+                inf = self.naming_strategy.get_release_info(filename=relfn,
+                                                            url=relurl,
+                                                            version=relver,
+                                                            # additional info:
+                                                            rel_name=rel_name,
+                                                            relfile_label=rellabel,
+                                                            rel_description=rel_desc,
+                                                            relfile_content_type=relcontenttype,
+                                                            rel_tag_name=tag_name,
+                                                            rel_html_url=html_url,
+                                                            )
+                if self.test_release_filters(inf):
+                    inf_list.append(inf)
 
         # debug: list found versions
         logger.debug("Found releases:\n"+

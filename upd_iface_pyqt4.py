@@ -44,6 +44,7 @@ logger = logging.getLogger('updater4pyi')
 
 
 class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
+
     def __init__(self, parent=None, **kwargs):
         self.timer = None
         
@@ -82,21 +83,30 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         for k,v in d.iteritems():
             settings.setValue(k, QVariant(v))
 
+        # and save the settings to disk.
+        settings.sync()
+
 
     def ask_to_update(self, rel_info):
         msgBox = QMessageBox(parent=None)
         msgBox.setWindowModality(Qt.NonModal)
-        msgBox.setText(unicode(self.tr("A new software update is available (%sversion %s)."))
+        msgBox.setText(unicode(self.tr("A new software update is available (%sversion %s). "
+                                       "Do you want to install it?"))
                        %(self.progname+' ' if self.progname else '', rel_info.get_version()))
-        msgBox.setInformativeText(self.tr("Do you want to install the new version? Please make sure you save all "
-                                          "your changes to your files before installing the update."))
+        msgBox.setInformativeText(self.tr("Please make sure you save all your changes to your files "
+                                          "before installing the update."))
         btnInstall = msgBox.addButton("Install", QMessageBox.AcceptRole)
         btnNotNow = msgBox.addButton("Not now", QMessageBox.RejectRole)
         btnDisableUpdates = msgBox.addButton("Disable Update Checks", QMessageBox.RejectRole)
         msgBox.setDefaultButton(btnInstall)
         msgBox.setEscapeButton(btnNotNow)
         msgBox.setIcon(QMessageBox.Question)
-        msgBox.exec_()
+
+        # show window as modeless window, so don't use exec_(). Instead, process application events
+        # until the user has chosen some option.
+        msgBox.show()
+        while (msgBox.isVisible()):
+            QApplication.processEvents()
 
         clickedbutton = msgBox.clickedButton()
 
@@ -152,24 +162,68 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         logger.debug("single-shot timer started with interval=%d ms", interval_ms)
 
 
-    # add proper slot decorations to these members
+    # ------------------------------------------------------------------------------
+    
+    # add proper signal and slot interface / decorations to these settings
+    # also, don't use timedelta, unknown to Qt4, but rather milliseconds (and the rename slot accordingly)
 
-    # don't use timedelta, unknown to Qt4, but rather milliseconds (and the rename slot accordingly)
+    
+    initCheckDelayMsChanged = pyqtSignal([int])
+
+    def initCheckDelayMs(self):
+        return int(self.initCheckDelay().total_seconds()*1000)
+
     @pyqtSlot(int)
     def setInitCheckDelayMs(self, init_check_delay_ms, save=True):
-        super(UpdatePyQt4Interface, self).setInitCheckDelay(
+        self.setInitCheckDelay(
             datetime.timedelta(days=0, microseconds=init_check_delay_ms*1000),
             save=save
             )
 
-    # don't use timedelta, unknown to Qt4, but rather milliseconds (and the rename slot accordingly)
+    def setInitCheckDelay(self, init_check_delay_td, save=True):
+        if (self._timedelta_equal(init_check_delay_td, self.initCheckDelay())):
+            # no change (up to small error)
+            return
+        
+        super(UpdatePyQt4Interface, self).setInitCheckDelay(init_check_delay_td, save=save)
+        self.initCheckDelayMsChanged.emit(int(init_check_delay_td.total_seconds()*1000))
+
+    # ---
+
+    checkForUpdatesEnabledChanged = pyqtSignal([bool])
+
+    @pyqtSlot(bool)
+    def setCheckForUpdatesEnabled(self, enabled, save=True):
+        if (enabled == self.checkForUpdatesEnabled()):
+            # no change
+            return
+        
+        super(UpdatePyQt4Interface, self).setCheckForUpdatesEnabled(enabled, save=save)
+        self.checkForUpdatesEnabledChanged.emit(enabled)
+
+    # ---
+    
+    checkIntervalMsChanged = pyqtSignal([int])
+
+    def checkIntervalMs(self):
+        return int(self.checkInterval().total_seconds()*1000)
+
     @pyqtSlot(int)
     def setCheckIntervalMs(self, check_interval_ms, save=True):
-        super(UpdatePyQt4Interface, self).setCheckIntervalMs(
+        self.setCheckInterval(
             datetime.timedelta(days=0, microseconds=check_interval_ms*1000),
             save=save
             )
 
-    @pyqtSlot(bool)
-    def setCheckForUpdatesEnabled(self, enabled, save=True):
-        super(UpdatePyQt4Interface, self).setCheckForUpdatesEnabled(enabled, save=save)
+    def setCheckInterval(self, check_interval_td, save=True):
+        if (self._timedelta_equal(check_interval_td, self.checkInterval())):
+            # no change (up to small error)
+            return
+        
+        super(UpdatePyQt4Interface, self).setCheckInterval(check_interval_td, save)
+        self.checkIntervalMsChanged.emit(int(check_interval_td.total_seconds()*1000))
+
+    # ---
+
+    def _timedelta_equal(self, a, b):
+        return abs( (a-b).total_seconds() ) < 1.0;
