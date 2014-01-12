@@ -43,6 +43,7 @@ import urllib2
 from . import util
 from . import upd_core
 from .upd_core import RELTYPE_UNKNOWN, RELTYPE_EXE, RELTYPE_ARCHIVE, RELTYPE_BUNDLE_ARCHIVE
+from .upd_core import Updater4PyiError
 
 
 logger = logging.getLogger('updater4pyi')
