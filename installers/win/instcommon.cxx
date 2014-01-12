@@ -28,6 +28,8 @@
 #                                                                                     #
 #####################################################################################*/
 
+#include <stdio.h>
+
 #include "instcommon.h"
 
 
@@ -47,3 +49,8 @@ int copy_to_pczztchar(TCHAR *x, char *src, int maxlen)
   return 0;
 }
 
+void pause()
+{
+  printf("\nPress ENTER to continue...\n");
+  getchar();
+}

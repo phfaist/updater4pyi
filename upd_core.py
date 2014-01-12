@@ -376,24 +376,9 @@ def install_update(rel_info):
     # TODO: add support for download verifyer (MD5/SHA or GPG signature)
     # ...
 
-    # detect if admin rights are needed.
-    if not util.is_win():
-        needs_sudo = not (os.access(filetoupdate.fn, os.W_OK) and
-                          os.access(os.path.dirname(filetoupdate.fn), os.W_OK))
-    else:
-        # NOTE: This does not work under linux, because we get eg. the error
-        #       IOError: [Errno 26] Text file busy: '/home/..../dist/testpycmdline/testpycmdline'
-        logger.debug("determining whether we need sudo: try opening %s as 'r+'.", filetoupdate.executable);
-        needs_sudo = True
-        try:
-            with open(filetoupdate.executable, 'r+') as f:
-                pass
-            logger.debug("no sudo needed.");
-            needs_sudo = False
-        except IOError:
-            # the file is write-protected
-            logger.debug("file is write-protected: sudo will be needed.");
-            needs_sudo = True
+
+    needs_sudo = not (util.locationIsWritable(filetoupdate.fn) and
+                      util.dirIsWritable(os.path.dirname(filetoupdate.fn)))
 
 
     # determine if we will work in the temporary dir only and call an external utility (e.g. do_install.exe)

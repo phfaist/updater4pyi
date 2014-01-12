@@ -262,18 +262,24 @@ class UpdateLocalDirectorySource(UpdateSource):
             naming_strategy = ReleaseInfoFromNameStrategy(naming_strategy)
 
         self.naming_strategy = naming_strategy
+        self.source_directory = source_directory
+
+        logger.debug("source directory is %s", self.source_directory)
         
         super(UpdateLocalDirectorySource, self).__init__(*args, **kwargs)
-        self.source_directory = source_directory
 
 
     def get_releases(self, newer_than_version=None, **kwargs):
-        
-        versiondirs = sorted([ vdir for vdir in os.listdir(self.source_directory)
-                               if os.path.isdir(os.path.join(self.source_directory, vdir))
-                               ],
-                             key=util.parse_version,
-                             reverse=True);
+
+        try:
+            versiondirs = sorted([ vdir for vdir in os.listdir(self.source_directory)
+                                   if os.path.isdir(os.path.join(self.source_directory, vdir))
+                                   ],
+                                 key=util.parse_version,
+                                 reverse=True);
+        except OSError:
+            logger.warning("Can't list directory %s", self.source_directory)
+            raise Updater4PyiError("Can't explore directory %s" %(self.source_directory))
 
         newer_than_version_parsed = util.parse_version(upd_core.current_version())
 
@@ -296,15 +302,20 @@ class UpdateLocalDirectorySource(UpdateSource):
 
             logger.debug("version %s is newer; base dir: %s" %(ver, base))
 
-            # list files in that directory.
-            for fn in os.listdir(base):
-                fnurl = util.path2url(os.path.join(base,fn))
-                inf = self.naming_strategy.get_release_info(filename=fn,
-                                                            url=fnurl,
-                                                            version=ver,
-                                                            )
-                if inf is not None:
-                    inf_list.append(inf)
+            try:
+                # list files in that directory.
+                for fn in os.listdir(base):
+                    fnurl = util.path2url(os.path.join(base,fn))
+                    logger.debug("base path %s ->  url path: %s", os.path.join(base,fn), fnurl)
+                    inf = self.naming_strategy.get_release_info(filename=fn,
+                                                                url=fnurl,
+                                                                version=ver,
+                                                                )
+                    if inf is not None:
+                        inf_list.append(inf)
+            except OSError:
+                logger.warning("Can't list directory %s", base)
+
 
         # debug: list found versions
         logger.debug("Found releases:\n"+

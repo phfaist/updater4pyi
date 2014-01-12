@@ -36,5 +36,7 @@
 #define BUFFER_SIZ 2048
 
 int copy_to_pczztchar(TCHAR *x, char *src, int maxlen);
+void pause();
+
 
 #endif // INSTCOMMON_H

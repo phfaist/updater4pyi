@@ -41,12 +41,100 @@
 
 enum {
   ARG_BKP_WHAT = 1,
-  ARG_BKP_NAME = 2,
-  ARG_MOVE_FROM = 3,
-  ARG_MOVE_TO = 4,
+  ARG_BKP_NAME,
+  ARG_MOVE_FROM,
+  ARG_MOVE_TO,
   // this one is equal to the reqested argc number:
   ARG_ONE_PAST_LAST
 };
+
+
+int cleanup_from(char *argv_move_from)
+{
+  // =====================
+  // finally, remove empty dir containing the move_from source.
+
+  char move_from_cpy[BUFFER_SIZ];
+  if (strlen(argv_move_from) >= BUFFER_SIZ)
+    return 15;
+  strcpy(move_from_cpy, argv_move_from);
+  char *move_from_dname = dirname(move_from_cpy);
+  if (strlen(move_from_dname) > strlen("upd4pyi_tmp_xtract_??????") &&
+      strncmp(move_from_dname+strlen(move_from_dname)-strlen("upd4pyi_tmp_xtract_??????"),
+              "upd4pyi_tmp_xtract_",
+              strlen("upd4pyi_tmp_xtract_")) == 0) {
+    // move_from's dirname ends with "upd4pyi_tmp_xtract_??????", which is the temp directory
+    // in which the software updater extracted the archive. So delete that dir, too.
+    TCHAR t_move_from_dname[BUFFER_SIZ];
+    if (copy_to_pczztchar(t_move_from_dname, move_from_dname, BUFFER_SIZ))
+      return 15;
+
+    SHFILEOPSTRUCT shcl;
+    shcl.hwnd = NULL;
+    shcl.wFunc = FO_DELETE;
+    shcl.pFrom = t_move_from_dname;
+    shcl.pTo = NULL;
+    shcl.fFlags = FOF_NOCONFIRMATION|FOF_NOCONFIRMMKDIR;
+    shcl.lpszProgressTitle = "";
+
+    fprintf(stderr, "Cleaning up %s ...\n", move_from_dname);
+    int rescl = SHFileOperation(&shcl);
+    if (rescl != 0) {
+      fprintf(stderr, "Error cleaning up %s\n", move_from_dname);
+      return 3;
+    }
+  }
+
+  return 0;
+}
+
+int failure_restore_backup(TCHAR *bkp_what, TCHAR *bkp_name, char *argv_bkp_what, char *argv_bkp_name)
+{
+  // =================
+  // clean up our mess
+
+  if ( ! (INVALID_FILE_ATTRIBUTES == GetFileAttributes(bkp_what) &&
+          ERROR_FILE_NOT_FOUND == GetLastError()) ) {
+
+    // we need to clean up our mess
+    SHFILEOPSTRUCT shcln;
+    shcln.hwnd = NULL;
+    shcln.wFunc = FO_DELETE;
+    shcln.pFrom = bkp_what;
+    shcln.pTo = NULL;
+    shcln.fFlags = FOF_NOCONFIRMATION|FOF_NOCONFIRMMKDIR;
+    shcln.lpszProgressTitle = "";
+
+    fprintf(stderr, "Cleaning up %s ...\n", argv_bkp_what);
+    int rescln = SHFileOperation(&shcln);
+    if (rescln != 0) {
+      fprintf(stderr, "Error cleaning up %s: error code %d\n", argv_bkp_what, rescln);
+      return 50;
+    }
+  }
+
+  // ==================
+  // and restore backup
+
+  SHFILEOPSTRUCT shbkprest;
+  shbkprest.hwnd = NULL;
+  shbkprest.wFunc = FO_MOVE;
+  shbkprest.pFrom = bkp_name;
+  shbkprest.pTo = bkp_what;
+  shbkprest.fFlags = FOF_NOCONFIRMATION|FOF_NOCONFIRMMKDIR;
+  shbkprest.lpszProgressTitle = "";
+
+  fprintf(stderr, "Restoring Backup %s to %s ...\n", argv_bkp_name, argv_bkp_what);
+  int resbkprest = SHFileOperation(&shbkprest);
+  if (resbkprest != 0) {
+    fprintf(stderr, "Error restoring backup %s to %s: error code %d\n",
+            argv_bkp_name, argv_bkp_what, resbkprest);
+    return 51;
+  }
+
+  return 0;
+}
+
 
 
 int main(int argc, char **argv)
@@ -55,6 +143,7 @@ int main(int argc, char **argv)
     fprintf(stderr,
             "Usage: %s  <backup-what> <backup-name> <move-from> <move-to>\n",
             argv[0]);
+    pause();
     return 100;
   }
 
@@ -94,8 +183,11 @@ int main(int argc, char **argv)
   int resbkp = SHFileOperation(&shbkp);
   if (resbkp != 0) {
     fprintf(stderr, "Error backing up %s to %s\n", argv[ARG_BKP_WHAT], argv[ARG_BKP_NAME]);
+    cleanup_from(argv[ARG_MOVE_FROM]);
+    pause();
     return 1;
   }
+
 
   // =====================
   // then, install the new files to their final location.
@@ -112,43 +204,39 @@ int main(int argc, char **argv)
   int res = SHFileOperation(&sh);
   if (res != 0) {
     fprintf(stderr, "Error renaming %s to %s\n", argv[ARG_MOVE_FROM], argv[ARG_MOVE_TO]);
+    cleanup_from(argv[ARG_MOVE_FROM]);
+    failure_restore_backup(bkp_what, bkp_name, argv[ARG_BKP_WHAT], argv[ARG_BKP_NAME]);
+    pause();
     return 2;
   }
+
 
   // =====================
   // finally, remove empty dir containing the move_from source.
 
-  char move_from_cpy[BUFFER_SIZ];
-  if (strlen(argv[ARG_MOVE_FROM]) >= BUFFER_SIZ)
-    return 15;
-  strcpy(move_from_cpy, argv[ARG_MOVE_FROM]);
-  char *move_from_dname = dirname(move_from_cpy);
-  if (strlen(move_from_dname) > strlen("upd4pyi_tmp_xtract_??????") &&
-      strncmp(move_from_dname+strlen(move_from_dname)-strlen("upd4pyi_tmp_xtract_??????"),
-              "upd4pyi_tmp_xtract_",
-              strlen("upd4pyi_tmp_xtract_")) == 0) {
-    // move_from's dirname ends with "upd4pyi_tmp_xtract_??????", which is the temp directory
-    // in which the software updater extracted the archive. So delete that dir, too.
-    TCHAR t_move_from_dname[BUFFER_SIZ];
-    if (copy_to_pczztchar(t_move_from_dname, move_from_dname, BUFFER_SIZ))
-      return 15;
+  int retcleanup = cleanup_from(argv[ARG_MOVE_FROM]);
+  if (retcleanup != 0)
+    return retcleanup;
 
-    SHFILEOPSTRUCT shcl;
-    shcl.hwnd = NULL;
-    shcl.wFunc = FO_DELETE;
-    shcl.pFrom = t_move_from_dname;
-    shcl.pTo = NULL;
-    shcl.fFlags = FOF_NOCONFIRMATION|FOF_NOCONFIRMMKDIR;
-    shcl.lpszProgressTitle = "";
 
-    fprintf(stderr, "Cleaning up %s ...\n", move_from_dname);
-    int rescl = SHFileOperation(&shcl);
-    if (rescl != 0) {
-      fprintf(stderr, "Error cleaning up %s\n", move_from_dname);
-      return 3;
-    }
+  // =====================
+  // and delete the no-longer-needed backup.
 
+  SHFILEOPSTRUCT shclnbkp;
+  shclnbkp.hwnd = NULL;
+  shclnbkp.wFunc = FO_DELETE;
+  shclnbkp.pFrom = bkp_name;
+  shclnbkp.pTo = NULL;
+  shclnbkp.fFlags = FOF_NOCONFIRMATION|FOF_NOCONFIRMMKDIR;
+  shclnbkp.lpszProgressTitle = "";
+
+  fprintf(stderr, "Cleaning up backup %s ...\n", argv[ARG_BKP_NAME]);
+  int resclnbkp = SHFileOperation(&shclnbkp);
+  if (resclnbkp != 0) {
+    fprintf(stderr, "WARNING: Error cleaning up backup %s: error code %d\n", argv[ARG_BKP_NAME], resclnbkp);
+    // ok, not quite an error, so proceed to return 0.
   }
+
 
   // =====================
   // all ok.
@@ -158,25 +246,3 @@ int main(int argc, char **argv)
   return 0;
 }
 
-
-// solution inspired by http://www.catch22.net/tuts/self-deleting-executables
-
-BOOL SelfDelete(TCHAR *szPath)
-{
-  if (szPath[0] == '\0')
-    return TRUE;
-
-  TCHAR szCmd[BUFFER_SIZ+50];
-
-  lstrcpy(szCmd, "/c sleep 2 & rmdir /s /q ");
-  lstrcat(szCmd, szPath);
-  lstrcat(szCmd, " >> NUL");
-
-  TCHAR comspecFile[BUFFER_SIZ];
-
-  if((GetEnvironmentVariable("ComSpec",comspecFile,BUFFER_SIZ)!=0) &&
-     ((INT)ShellExecute(0,0,comspecFile,szCmd,0,SW_HIDE)>32))
-    return TRUE;
-
-  return FALSE;
-}

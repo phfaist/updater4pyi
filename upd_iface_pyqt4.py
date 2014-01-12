@@ -49,7 +49,7 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         
         QObject.__init__(self, parent=parent)
         # super doesn't propagate out of the Qt multiple inheritance...
-        upd_iface.UpdateGenericGuiInterface.__init__(**kwargs)
+        upd_iface.UpdateGenericGuiInterface.__init__(self, **kwargs)
 
 
     # ------------

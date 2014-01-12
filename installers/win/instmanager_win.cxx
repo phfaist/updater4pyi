@@ -43,6 +43,7 @@
 #define BUFFER_SIZ 2048
 
 BOOL add_quoted_parameter(TCHAR *dest, TCHAR *p, size_t maxsiz);
+int cleanupself(TCHAR *self_temp_dir, char *argv_self_tmp_dir);
 BOOL SelfDelete(TCHAR *szPath);
 
 enum {
@@ -58,6 +59,8 @@ enum {
   ARG_ONE_PAST_LAST
 };
 
+int do_main(int argc, char **argv);
+
 
 int main(int argc, char **argv)
 {
@@ -66,9 +69,24 @@ int main(int argc, char **argv)
             "Usage: %s  <wait-pid> <need-sudo> <backup-what> <backup-name>"
             " <move-from> <move-to> <rm-temp-do_install-dir> <relaunch-after>\n",
             argv[0]);
+    pause();
     return 100;
   }
 
+  // self_temp_dir
+  TCHAR self_temp_dir[BUFFER_SIZ];
+  if (copy_to_pczztchar(self_temp_dir, argv[ARG_SELF_TEMP_DIR], BUFFER_SIZ))
+    return 15;
+
+  int retcode = do_main(argc, argv);
+
+  cleanupself(self_temp_dir, argv[ARG_SELF_TEMP_DIR]);
+
+  return retcode;
+}
+
+int do_main(int argc, char **argv)
+{
 
   // wait_pid
   DWORD wait_pid = atoi(argv[ARG_WAIT_PID]);
@@ -96,11 +114,6 @@ int main(int argc, char **argv)
   if (copy_to_pczztchar(move_to, argv[ARG_MOVE_TO], BUFFER_SIZ))
     return 15;
 
-  // self_temp_dir
-  TCHAR self_temp_dir[BUFFER_SIZ];
-  if (copy_to_pczztchar(self_temp_dir, argv[ARG_SELF_TEMP_DIR], BUFFER_SIZ))
-    return 15;
-
   TCHAR relaunch_after[BUFFER_SIZ];
   if (copy_to_pczztchar(relaunch_after, argv[ARG_RELAUNCH_AFTER], BUFFER_SIZ))
     return 15;
@@ -117,6 +130,7 @@ int main(int argc, char **argv)
       CloseHandle(hProcWait);
       if (waitret != WAIT_OBJECT_0) {
         fprintf(stderr, "Error waiting for process %d to finish: code %d\n", wait_pid, waitret);
+        pause();
         return 16;
       }
     }
@@ -141,9 +155,9 @@ int main(int argc, char **argv)
   if (strlen(dname) >= BUFFER_SIZ)
     return 15;
   strcpy(do_install_exe, dname);
-  if (strlen("/")+strlen(do_install_exe) >= BUFFER_SIZ)
+  if (strlen("\\")+strlen(do_install_exe) >= BUFFER_SIZ)
     return 15;
-  strcat(do_install_exe, "/");
+  strcat(do_install_exe, "\\");
   if (strlen("do_install.exe")+strlen(do_install_exe) >= BUFFER_SIZ)
     return 15;
   strcat(do_install_exe, "do_install.exe");
@@ -175,6 +189,7 @@ int main(int argc, char **argv)
   BOOL doinst_ok = ShellExecuteEx(&doinstsh);
   if (!doinst_ok) {
     fprintf(stderr, "Error executing %s\n", do_install_exe);
+    pause();
     return 31;
   }
 
@@ -185,16 +200,20 @@ int main(int argc, char **argv)
   CloseHandle(doinstsh.hProcess);
 
   if (doinstwaitret != WAIT_OBJECT_0) {
-    fprintf(stderr, "Error waiting for do_install.exe process to finish: code %d\n", doinstwaitret);
+    fprintf(stderr, "Error waiting for do_install.exe process to finish: error code %d\n", doinstwaitret);
+    pause();
     return 17;
   }
   if (!doinstgret) {
     fprintf(stderr, "Error: can't get do_install.exe return code\n");
+    pause();
     return 18;
   }
   if (doinstret != 0) {
-    fprintf(stderr, "Error: do_install.exe returned error code %d\n", doinstret);
-    return doinstret;
+    fprintf(stderr, "Error: do_install.exe returned error code %d. Install failed.\n", doinstret);
+    pause();
+    // but still proceed to relaunch the program and autodestruct.
+    //return doinstret;
   }
 
 
@@ -207,12 +226,6 @@ int main(int argc, char **argv)
     fprintf(stderr, "Error relaunching program %s!\n", argv[ARG_RELAUNCH_AFTER]);
     return 32;
   }
-
-  // =====================
-  // finally, autodestruct and return.
-
-  fprintf(stderr, "Autodestructing %s ...\n", argv[ARG_SELF_TEMP_DIR]);
-  return SelfDelete(self_temp_dir) ? 0 : 3;
 
   // =====================
   // all ok.
@@ -248,6 +261,14 @@ BOOL add_quoted_parameter(TCHAR *dest, TCHAR *p, size_t maxsiz)
   return TRUE;
 }
 
+
+int cleanupself(TCHAR *self_temp_dir, char *argv_self_temp_dir)
+{
+  // finally, autodestruct and return.
+
+  fprintf(stderr, "Autodestructing %s ...\n", argv_self_temp_dir);
+  return SelfDelete(self_temp_dir) ? 0 : 3;
+}
 
 // solution inspired by http://www.catch22.net/tuts/self-deleting-executables
 

@@ -119,12 +119,86 @@ def resource_path(relative_path):
 
 
 def path2url(p):
-    x = urllib.pathname2url(p)
+
+    x = p;
+    if os.sep != '/':
+        # on windows: a\b -> a/b
+        x = x.replace(os.sep, '/');
+        
+    x = urllib.pathname2url(x)
     if not x.startswith('///'):
         x = "//"+os.path.abspath(x)
     return 'file:'+x
     
+
+# ------------
+
+
+def locationIsWritable(path):
+    if (os.path.isdir(path)):
+        return dirIsWritable(path)
+    if (os.path.isfile(path)):
+        return fileIsWritable(path)
+    logger.warning("location does not exist: %s", path);
+    return False
+
+
+def fileIsWritable(fn):
+    if not is_win():
+        return os.access(fn, os.W_OK)
+
+    # otherwise, don't try to open the file itself, as it might be the executable itself
+    # which is locked for write access while the program executs. Instead, test writability
+    # of the containing directory.
+
+    return dirIsWritable(os.path.dirname(fn))
     
+
+# solution adapted from http://stackoverflow.com/a/8620444/1694896
+def dirIsWritable(directory):
+    if not is_win():
+        return os.access(directory, os.W_OK)
+    
+    try:
+        tmp_prefix = "upd4pyi_tmp_write_tester";
+        count = 0
+        filename = os.path.join(directory, tmp_prefix)
+        while(os.path.exists(filename)):
+            filename = "%s.%s.tmp" % (os.path.join(directory, tmp_prefix), count)
+            count = count + 1
+        with open(filename,"w") as f:
+            pass
+        os.remove(filename)
+        return True
+    except IOError as e:
+        #print "{}".format(e)
+        return False
+
+##     # detect if admin rights are needed.
+##     if not util.is_win():
+##         needs_sudo = not (os.access(filetoupdate.fn, os.W_OK) and
+##                           os.access(os.path.dirname(filetoupdate.fn), os.W_OK))
+##     else:
+##         # NOTE: This does not work under linux, because we get eg. the error
+##         #       IOError: [Errno 26] Text file busy: '/home/..../dist/testpycmdline/testpycmdline'
+
+
+##         # NOTE: BUG DOESN'T WORK UNDER WINDOWS, EITHER
+##         ....................................
+        
+##         logger.debug("determining whether we need sudo: try opening %s as 'r+'.", filetoupdate.executable);
+##         needs_sudo = True
+##         try:
+##             with open(filetoupdate.executable, 'r+') as f:
+##                 pass
+##             logger.debug("no sudo needed.");
+##             needs_sudo = False
+##         except IOError:
+##             # the file is write-protected
+##             logger.debug("file is write-protected: sudo will be needed.");
+##             needs_sudo = True
+
+
 
 
 # ------------
