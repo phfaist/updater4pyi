@@ -2,7 +2,8 @@
 
 import os
 import os.path
-from distutils.core import setup
+#from distutils.core import setup
+from setuptools import setup
 
 import updater4pyi.upd_version
 
@@ -20,7 +21,9 @@ setup(name='updater4pyi',
       author='Philippe Faist',
       author_email=("".join([chr(ord(x)+1) for x in 'oghkhood-e`hrs?aktdvhm-bg'])),
       url='https://github.com/phfaist/updater4pyi/',
+      license='BSD',
       packages=['updater4pyi'],
+      py_modules=[],
       classifiers=[
           'Development Status :: 4 - Beta'
           'License :: OSI Approved :: BSD License',
