@@ -163,6 +163,8 @@ def _make_bin_release_info(m, lst, innerkwargs):
                 valargs['m'] = m;
             if ('d' in argspec.args or argspec.keywords is not None):
                 valargs['d'] = innerkwargs;
+            if ('x' in argspec.args or argspec.keywords is not None):
+                valargs['x'] = args; # determined args so far
 
             val = v(**valargs)
         else:
@@ -229,27 +231,62 @@ def _maybe_compile_re(r, flags=re.IGNORECASE):
     return re.compile(r, flags)
 
 
+
+def _guess_plat(m, d, default=None):
+    try:
+        if m.group('platform'):
+            return m.group('platform').lower();
+    except KeyError:
+        pass
+
+    relfile_label = d.get('relfile_label', '');
+    if re.search(r'mac\s*os\s*x', relfile_label, re.I):
+        return 'macosx'
+    if re.search(r'linux', relfile_label, re.I):
+        return 'linux'
+    if re.search(r'windows', relfile_label, re.I):
+        return 'win'
+
+    if (default is not None):
+        return default
+    return IgnoreArgument()
+
+def _guess_reltype(m, d, x, default=None):
+    if (x.get('platform', '') == 'macosx'):
+        try:
+            if (m.group('onedir')):
+                return RELTYPE_ARCHIVE
+        except KeyError:
+            pass
+
+        return RELTYPE_BUNDLE_ARCHIVE
+
+    if (default is not None):
+        return default
+    return IgnoreArgument()
+
+
 _RX_VER = r'-(?P<version>\d+[\w.]+)'
 _RX_VER_OPT = '('+_RX_VER+')?'
 _RX_PLAT = r'-(?P<platform>macosx|linux|win)'
 _RX_PLAT_OPT = '('+_RX_PLAT+')?'
 
 _default_naming_strategy_patterns = (
-    relpattern(_RX_VER_OPT+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+#    relpattern(_RX_VER_OPT+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
+#               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+#               platform='macosx',
+#               reltype=RELTYPE_BUNDLE_ARCHIVE),
+    relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'(?P<onedir>-(onedir|dir|dist))?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform='macosx',
-               reltype=RELTYPE_BUNDLE_ARCHIVE),
-    relpattern(_RX_VER_OPT+_RX_PLAT+r'(-(onedir|dist))?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
-               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform').lower(),
-               reltype=RELTYPE_ARCHIVE),
+               platform=_guess_plat,
+               reltype=lambda m, d, x: _guess_reltype(m, d, x, default=RELTYPE_ARCHIVE)),
     relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'\.exe$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform').lower() if m.group('platform') else "win",
+               platform=lambda m, d: _guess_plat(m, d, default='win'),
                reltype=RELTYPE_EXE),
     relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'(\.(bin|run))?$',
                version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
-               platform=lambda m: m.group('platform').lower() if m.group('platform') else "linux",
+               platform=lambda m, d: _guess_plat(m, d, default='linux'),
                reltype=RELTYPE_EXE),
     )
 
@@ -430,8 +467,8 @@ class UpdateGithubReleasesSource(UpdateSource):
 
         try:
             fdata = upd_downloader.url_opener.open(url)
-        except urllib2.URLError:
-            logger.warning("Can't connect to github for software update check.")
+        except urllib2.URLError as e:
+            logger.warning("Can't connect to github for software update check: %s", e)
             return None
 
         try:

@@ -6,7 +6,7 @@ import updater4pyi.util
 import os.path
 
 def locpath(x):
-    return os.path.join(os.path.dirname(updater4pyi.__file__), x)
+    return os.path.realpath(os.path.join(os.path.dirname(updater4pyi.__file__), '..', x))
 
 datas = [
     (locpath('cacert.pem'), 'updater4pyi'),

@@ -103,6 +103,7 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         # show window as modeless window, so don't use exec_(). Instead, process application events
         # until the user has chosen some option.
         msgBox.show()
+        msgBox.raise_()
         while (msgBox.isVisible()):
             QApplication.processEvents()
 
@@ -137,6 +138,8 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         msgBox.setDefaultButton(btnRestart)
         msgBox.setEscapeButton(btnIgnore)
         msgBox.setIcon(QMessageBox.Information)
+        msgBox.show()
+        msgBox.raise_()
         msgBox.exec_();
 
         clickedbutton = msgBox.clickedButton()
