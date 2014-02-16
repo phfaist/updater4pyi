@@ -160,8 +160,10 @@ _SETTINGS_ALL = ['check_for_updates_enabled', 'init_check_delay', 'check_interva
                  'last_check']
 
 class UpdateGenericGuiInterface(UpdateInterface):
-    def __init__(self, updater, **kwargs):
+    def __init__(self, updater, ask_before_checking=True, **kwargs):
         super(UpdateGenericGuiInterface, self).__init__(updater, **kwargs)
+
+        self.ask_before_checking = ask_before_checking;
         
         self.update_installed = False
         self.is_initial_delay = True
@@ -169,11 +171,13 @@ class UpdateGenericGuiInterface(UpdateInterface):
         self.is_currently_checking = False
 
         # load settings
-        d = self.load_settings(_SETTINGS_ALL)
+        d = self.load_settings(self._settings_all_keys())
         self.init_check_delay = util.ensure_timedelta(d.get('init_check_delay', DEFAULT_INIT_CHECK_DELAY))
         self.check_interval = util.ensure_timedelta(d.get('check_interval', DEFAULT_CHECK_INTERVAL))
         self.check_for_updates_enabled = d.get('check_for_updates_enabled', True)
         self.last_check = util.ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
+        if (self.ask_before_checking):
+            self.asked_before_checking = d.get('asked_before_checking', False);
         
     
     def start(self):
@@ -220,7 +224,15 @@ class UpdateGenericGuiInterface(UpdateInterface):
         """
         Utility to get all settings. Useful for subclasses; this doesn't need to be reimplemented.
         """
-        return dict([(k,getattr(self,k)) for k in _SETTINGS_ALL])
+        return dict([(k,getattr(self,k)) for k in self._settings_all_keys()])
+
+
+    def _settings_all_keys(self):
+        """
+        Returns a list of relevant settings keys for this object. Includes `'aksed_before_checking'` only
+        if the `ask_before_checking` argument given to the constructor was `True`.
+        """
+        return _SETTINGS_ALL + (['asked_before_checking'] if self.ask_before_checking else [])
 
     # ----------------------------------------------
 
@@ -256,6 +268,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
             if (not self.is_check_now_due()):
                 # software update check is not yet due (not even in the next 10 seconds). Just
                 # schedule next check.
+                logger.debug("Update check is not yet due. Postpone.")
                 self.schedule_next_update_check()
                 return
 
@@ -271,12 +284,23 @@ class UpdateGenericGuiInterface(UpdateInterface):
         try:
             # check for updates
 
+            if (self.ask_before_checking and not self.asked_before_checking):
+                # ask before we check.
+                if (self.ask_first_time() != True):
+                    logger.debug("UpdateGenericGuiInterface: are told not to check for updates.");
+                    self.setCheckForUpdatesEnabled(False);
+                    self.asked_before_checking = True
+                    self.save_settings({'asked_before_checking': True})
+                    return
+
             rel_info = self.updater.check_for_updates()
 
             if (rel_info is None):
                 # no updates.
                 logger.debug("UpdateGenericGuiInterface: No updates available.")
                 return
+
+            logger.debug("Update (version %s) is available.", rel_info.get_version())
 
             #
             # There's an update, prompt the user.
@@ -343,6 +367,17 @@ class UpdateGenericGuiInterface(UpdateInterface):
     # ------------------------------------------------------------------------------
     
 
+    def ask_first_time(self):
+        """
+        Subclasses should prompt the user whether they want to regularly look for updates.
+
+        This is prompted to the user only if the main program set `ask_before_checking` to `True` in the
+        constructor of this object.
+        
+        Return TRUE if the program should regularly check for updates, or FALSE if not.
+        """
+        raise NotImplementedError
+        
     def ask_to_update(self, rel_info):
         """
         Subclasses should prompt the user whether they want to install the update `rel_info` or not.

@@ -41,7 +41,7 @@ from .upd_log import logger
 
 
 
-class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
+class UpdatePyQt4Interface(QObject, upd_iface.UpdateGenericGuiInterface):
 
     def __init__(self, updater, parent=None, **kwargs):
         self.timer = None
@@ -85,6 +85,33 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
         settings.sync()
 
 
+    def ask_first_time(self):
+        msgBox = QMessageBox(parent=None)
+        msgBox.setWindowModality(Qt.NonModal)
+        msgBox.setText(unicode(self.tr("Would you like to regularly check for software updates%s?"))
+                       %( ((unicode(self.tr(" for %s"))%self.progname)
+                           if self.progname
+                           else '') )
+        )
+        msgBox.addButton(QMessageBox.Yes)
+        msgBox.addButton(QMessageBox.No)
+        msgBox.setIcon(QMessageBox.Question)
+
+        # show window as modeless window, so don't use exec_(). Instead, process application events
+        # until the user has chosen some option.
+        msgBox.show()
+        msgBox.raise_()
+        while (msgBox.isVisible()):
+            QApplication.processEvents()
+
+        # Yes, look for updates
+        if (msgBox.clickedButton() == msgBox.button(QMessageBox.Yes)):
+            return True
+
+        # Anything else: no, go away
+        return False
+
+
     def ask_to_update(self, rel_info):
         msgBox = QMessageBox(parent=None)
         msgBox.setWindowModality(Qt.NonModal)
@@ -120,7 +147,7 @@ class UpdatePyQt4Interface(QObject,upd_iface.UpdateGenericGuiInterface):
             self.setCheckForUpdatesEnabled(False)
 
         return False
-        
+
         
     def ask_to_restart(self):
         msgBox = QMessageBox(parent=None)
