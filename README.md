@@ -25,6 +25,11 @@ Installation & Usage
 Updater4pyi is available on PyPI, so the recommended installation is through
 there.
 
+You will also need to install one hook for pyinstaller. If you have a custom
+hook directory in your project, you can place the file named
+`hook-updater4pyi.py` it there; otherwise, locate your pyinstaller `hooks`
+directory and copy the file `hook-updater4pyi.py` in there.
+
 To use updater4pyi in your programs, you need to:
 
   - describe where to look for updates (the *sources*)
@@ -46,6 +51,10 @@ uses the updater4pyi framework, and the relevant lines in there are:
                                          progname='Bibolamazi',
                                          ask_before_checking=True,
                                          parent=QApplication.instance())
+
+Then, you need to make sure that pyinstaller can find updater4pyi, i.e. it has
+to be in your python path.
+
 
 Sources
 =======
