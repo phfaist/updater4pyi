@@ -16,8 +16,8 @@ def read(*paths):
 
 setup(name='updater4pyi',
       version=updater4pyi.upd_version.version_str,
-      description='Lightweight library to add software auto-update functionality to pyinstaller-packaged applications',
-      long_description=read('README.txt'),
+      description='Lightweight library for software auto-update for applications frozen with pyinstaller',
+      long_description=read('README.md'),
       author='Philippe Faist',
       # obfuscate e-mail in source script, will be in clear in the package
       author_email=("".join([chr(ord(x)+1) for x in 'oghkhood-e`hrs?aktdvhm-bg'])),
