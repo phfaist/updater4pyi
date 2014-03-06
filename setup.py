@@ -16,16 +16,17 @@ def read(*paths):
 
 setup(name='updater4pyi',
       version=updater4pyi.upd_version.version_str,
-      description='Lightweight library to add software update functionality to pyinstaller-packaged applications',
+      description='Lightweight library to add software auto-update functionality to pyinstaller-packaged applications',
       long_description=read('README.txt'),
       author='Philippe Faist',
+      # obfuscate e-mail in source script, will be in clear in the package
       author_email=("".join([chr(ord(x)+1) for x in 'oghkhood-e`hrs?aktdvhm-bg'])),
       url='https://github.com/phfaist/updater4pyi/',
       license='BSD',
       packages=['updater4pyi'],
       py_modules=[],
       classifiers=[
-          'Development Status :: 4 - Beta'
+          'Development Status :: 4 - Beta',
           'License :: OSI Approved :: BSD License',
           'Programming Language :: Python',
           'Operating System :: MacOS :: MacOS X',
