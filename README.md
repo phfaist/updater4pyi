@@ -1,5 +1,4 @@
 
-
 UPDATER4PYI
 ===========
 
@@ -71,6 +70,16 @@ At the moment, there are only two source types
 However, it is straightforward to write your own source. Look at `upd_source.py`
 to get an idea. If you do so, it would be great to contribute it to updater4pyi
 so that other people can profit!
+
+
+
+Security
+========
+
+This library supports downloads through HTTPS with certificate verification,
+making the download and update process secure. The default root certificate is
+provided with this package, and can be changed to include your custom one if
+needed.
 
 
 
