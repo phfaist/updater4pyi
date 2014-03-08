@@ -560,7 +560,7 @@ class Updater(object):
                 exe_cmd = 'open '+util.bash_quote(self._file_to_update.fn) # the .app
 
             this_pid = os.getpid()
-            subprocess.Popen("while ps -x -p %d >/dev/null; do sleep 1; done; ( %s & )"
+            subprocess.Popen("while ps -p %d >/dev/null; do sleep 1; done; ( %s & )"
                              %(this_pid, exe_cmd),
                              shell=True)
             sys.exit(0)
