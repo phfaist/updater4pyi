@@ -281,9 +281,20 @@ class UpdateGenericGuiInterface(UpdateInterface):
         Actually perform the udpate check. Call this function if you want to force an
         update check even though it's not yet due. If you want to periodically possibly
         check only if a check is due, then call `check_for_updates()` instead.
+
+        Returns:
+            - `None` if we asked the user for the first time if they want to check
+              regularly for updates, and they refused.
+            - `False` if no new update is available
+            - a tuple if a new update is available:
+                - `(True, rel_info)` if the user installed the update but did not
+                  restart the app;
+                - `(False, rel_info)` if the user declined to install the update now
+            - the tuple `(False, None, error_str)` if an error occurred while checking
+              for updates.
         """
         if self.is_currently_checking:
-            return
+            return None
         try:
             self.is_currently_checking = True
 
@@ -296,7 +307,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
                     self.setCheckForUpdatesEnabled(False);
                     self.asked_before_checking = True
                     self.save_settings({'asked_before_checking': True})
-                    return
+                    return None
 
             rel_info = self.updater.check_for_updates()
 
@@ -321,16 +332,18 @@ class UpdateGenericGuiInterface(UpdateInterface):
                 #
                 if self.ask_to_restart():
                     self.updater.restart_app()
-                    return True
-                #
-            else:
-                logger.debug("UpdateGenericGuiInterface: Not installing update.")
+                    return (True, rel_info) # whatever, our app will have exited anyway
 
+                # return to the main program.
+                return (True, rel_info)
+
+            logger.debug("UpdateGenericGuiInterface: Not installing update.")
             # return to the main program.
-            return True
+            return (False, rel_info)
         
         except Updater4PyiError as e:
             logger.warning("Error while checking for updates: %s", e)
+            return (False, None, unicode(e))
             
         finally:
             self.last_check = datetime.datetime.now()
