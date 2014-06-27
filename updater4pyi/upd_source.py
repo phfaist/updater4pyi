@@ -241,7 +241,7 @@ def _guess_plat(m, d, default=None):
 
     relfile_label = d.get('relfile_label', '');
     if relfile_label is None or not len(relfile_label):
-        relfile_label = d.get('relfile_fn', '');
+        relfile_label = d.get('filename', '');
 
     if relfile_label is None or not len(relfile_label):
         return default if default is not None else IgnoreArgument()
