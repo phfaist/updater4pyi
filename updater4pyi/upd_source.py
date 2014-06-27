@@ -240,6 +240,12 @@ def _guess_plat(m, d, default=None):
         pass
 
     relfile_label = d.get('relfile_label', '');
+    if relfile_label is None or not len(relfile_label):
+        relfile_label = d.get('relfile_fn', '');
+
+    if relfile_label is None or not len(relfile_label):
+        return default if default is not None else IgnoreArgument()
+
     if re.search(r'mac\s*os\s*x', relfile_label, re.I):
         return 'macosx'
     if re.search(r'linux', relfile_label, re.I):
