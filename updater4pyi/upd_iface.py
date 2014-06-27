@@ -238,50 +238,55 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
     def check_for_updates(self):
         """
-        Actually perform the update check. You don't have to reimplement this function, the default
+        Perform a possible update check. You don't have to reimplement this function, the default
         implementation should be good enough and relies on your implementations of `ask_to_update()`
         and `ask_to_restart()`.
+
+        If the update check isn't due yet, this function does not do the update check. If
+        you want to force an update check, call `do_check_for_updates()`.
         """
         logger.debug("UpdateGenericGuiInterface: check_for_updates()")
 
+        if (self.update_installed):
+            logger.warning("We have already installed an update and pending restart.")
+            return
+
+        logger.debug("self.is_initial_delay=%r, self.timedelta_remaining_to_next_check()=%r",
+                     self.is_initial_delay, self.timedelta_remaining_to_next_check())
+
+        # if we were called just after the initial delay, reset this flag.
+        if (self.is_initial_delay):
+            self.is_initial_delay = False
+
+        # now, really check that we are due for software update check.
+        #   * we might be after an initial delay, and while the app was just started, updates are checked
+        #     for eg. once a month and a check is not yet due, yet this function is called by timeout.
+        #   * even if we are not at the initial delay, the user may have disabled update checks in the
+        #     settings between the scheduling of the update check and now.
+        if (not self.is_check_now_due()):
+            # software update check is not yet due (not even in the next 10 seconds). Just
+            # schedule next check.
+            logger.debug("Update check is not yet due. Postpone.")
+            self.schedule_next_update_check()
+            return
+
+        try:
+            self.do_check_for_updates()
+        finally:
+            self.schedule_next_update_check()
+
+
+    def do_check_for_updates(self):
+        """
+        Actually perform the udpate check. Call this function if you want to force an
+        update check even though it's not yet due. If you want to periodically possibly
+        check only if a check is due, then call `check_for_updates()` instead.
+        """
         if self.is_currently_checking:
             return
         try:
             self.is_currently_checking = True
 
-            if (self.update_installed):
-                logger.warning("We have already installed an update and pending restart.")
-                return
-
-            logger.debug("self.is_initial_delay=%r, self.timedelta_remaining_to_next_check()=%r",
-                         self.is_initial_delay, self.timedelta_remaining_to_next_check())
-
-            # if we were called just after the initial delay, reset this flag.
-            if (self.is_initial_delay):
-                self.is_initial_delay = False
-
-            # now, really check that we are due for software update check.
-            #   * we might be after an initial delay, and while the app was just started, updates are checked
-            #     for eg. once a month and a check is not yet due, yet this function is called by timeout.
-            #   * even if we are not at the initial delay, the user may have disabled update checks in the
-            #     settings between the scheduling of the update check and now.
-            if (not self.is_check_now_due()):
-                # software update check is not yet due (not even in the next 10 seconds). Just
-                # schedule next check.
-                logger.debug("Update check is not yet due. Postpone.")
-                self.schedule_next_update_check()
-                return
-
-            try:
-                self.do_check_for_updates()
-            finally:
-                self.schedule_next_update_check()
-        finally:
-            self.is_currently_checking = False
-
-
-    def do_check_for_updates(self):
-        try:
             # check for updates
 
             if (self.ask_before_checking and not self.asked_before_checking):
@@ -298,7 +303,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
             if (rel_info is None):
                 # no updates.
                 logger.debug("UpdateGenericGuiInterface: No updates available.")
-                return
+                return False
 
             logger.debug("Update (version %s) is available.", rel_info.get_version())
 
@@ -316,13 +321,13 @@ class UpdateGenericGuiInterface(UpdateInterface):
                 #
                 if self.ask_to_restart():
                     self.updater.restart_app()
-                    return
+                    return True
                 #
             else:
                 logger.debug("UpdateGenericGuiInterface: Not installing update.")
 
             # return to the main program.
-            return
+            return True
         
         except Updater4PyiError as e:
             logger.warning("Error while checking for updates: %s", e)
@@ -330,6 +335,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
         finally:
             self.last_check = datetime.datetime.now()
             self.save_settings({'last_check': self.last_check})
+            self.is_currently_checking = False
 
 
     def is_check_now_due(self, tolerance=datetime.timedelta(days=0, seconds=10)):

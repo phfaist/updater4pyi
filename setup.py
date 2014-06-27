@@ -24,6 +24,7 @@ setup(name='updater4pyi',
       url='https://github.com/phfaist/updater4pyi/',
       license='BSD',
       packages=['updater4pyi'],
+      package_data={'updater4pyi': [ 'cacert.pem' ]},
       py_modules=[],
       classifiers=[
           'Development Status :: 4 - Beta',
