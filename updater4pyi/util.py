@@ -57,6 +57,35 @@ def ignore_exc(f, exc=(Exception,), value_if_exc=None):
 # -------------------------------------
 
 
+# note: taken from bibolamazi source (bibolamazi/core/butils.py)
+def getbool(x):
+    """
+    Utility to parse a string representing a boolean value.
+
+    If `x` is already of integer or boolean type (actually, anything castable to an
+    integer), then the corresponding boolean convertion is returned. If it is a
+    string-like type, then it is matched against something that looks like 't(rue)?', '1',
+    'y(es)?' or 'on' (ignoring case), or against something that looks like 'f(alse)?',
+    '0', 'n(o)?' or 'off' (also ignoring case). Leading or trailing whitespace is ignored. 
+    If the string cannot be parsed, a :py:exc:`ValueError` is raised.
+    """
+    try:
+        return (int(x) != 0)
+    except (TypeError, ValueError):
+        pass
+    x = str(x) # because x might be, say, a QString in a PyQt4 scenario
+    m = re.match(r'^\s*(t(?:rue)?|1|y(?:es)?|on)\s*$', x, re.IGNORECASE);
+    if m:
+        return True
+    m = re.match(r'^\s*(f(?:alse)?|0|n(?:o)?|off)\s*$', x, re.IGNORECASE);
+    if m:
+        return False
+    raise ValueError("Can't parse boolean value: %r" % x);
+
+
+
+
+# ----------------------------------------
 
 
 

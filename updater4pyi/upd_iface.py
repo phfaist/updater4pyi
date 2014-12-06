@@ -150,6 +150,8 @@ class UpdateConsoleInterface(UpdateInterface):
 # ---------------------------------------------------------------------
 
 
+
+
 # initial check by default 1 minute after app startup, so as not to slow down app startup.
 DEFAULT_INIT_CHECK_DELAY = datetime.timedelta(days=0, seconds=60, microseconds=0)
 # subsequent checks every week by default
@@ -174,7 +176,14 @@ class UpdateGenericGuiInterface(UpdateInterface):
         d = self.load_settings(self._settings_all_keys())
         self.init_check_delay = util.ensure_timedelta(d.get('init_check_delay', DEFAULT_INIT_CHECK_DELAY))
         self.check_interval = util.ensure_timedelta(d.get('check_interval', DEFAULT_CHECK_INTERVAL))
-        self.check_for_updates_enabled = d.get('check_for_updates_enabled', True)
+
+        try:
+            val = d.get('check_for_updates_enabled', True)
+            self.check_for_updates_enabled = util.getbool(val)
+        except ValueError:
+            logger.warning("Couldn't parse config value for `check_for_updates_enabled': %r", val)
+            self.check_for_updates_enabled = False
+
         self.last_check = util.ensure_datetime(d.get('last_check', datetime.datetime(1970, 1, 1)))
         if (self.ask_before_checking):
             self.asked_before_checking = d.get('asked_before_checking', False);
@@ -207,7 +216,7 @@ class UpdateGenericGuiInterface(UpdateInterface):
         return self.check_for_updates_enabled
 
     def setCheckForUpdatesEnabled(self, enabled, save=True, schedule_check=True):
-        self.check_for_updates_enabled = enabled
+        self.check_for_updates_enabled = util.getbool(enabled)
         # save setting to settings file
         if save:
             self.save_settings({'check_for_updates_enabled': self.check_for_updates_enabled})
