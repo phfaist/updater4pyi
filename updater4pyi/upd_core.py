@@ -124,14 +124,10 @@ class Updater(object):
         Instantiates an `Updater`, with updates provided by the source `update_source` (a
         `upd_source.UpdateSource` subclass instance).
 
-        ...........NO ..............., and the user interface
-        `update_interface` (itself an `upd_iface.UpdateInterface` subclass instance).
-
         The `current_version` is the current version string of the software, and will
         be provided to the `update_source`.
 
-        ...........NO................If `update_interface` is `None`, then a default console interface is provided
-        (of class `upd_iface.UpdateConsoleInterface`).
+        ... doc here ...
         """
 
         # sys._MEIPASS seems to be set all the time, even we don't self-extract.

@@ -192,31 +192,37 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
     def setInitCheckDelay(self, init_check_delay, save=True):
         self.init_check_delay = util.ensure_timedelta(init_check_delay)
-        if save: self.save_settings({'init_check_delay': self.init_check_delay})
+        if save:
+            self.save_settings({'init_check_delay': self.init_check_delay})
 
     def checkInterval(self):
         return self.check_interval
 
     def setCheckInterval(self, check_interval, save=True):
         self.check_interval = util.ensure_timedelta(check_interval)
-        if save: self.save_settings({'check_interval': self.check_interval})
+        if save:
+            self.save_settings({'check_interval': self.check_interval})
 
     def checkForUpdatesEnabled(self):
         return self.check_for_updates_enabled
 
-    def setCheckForUpdatesEnabled(self, enabled, save=True):
+    def setCheckForUpdatesEnabled(self, enabled, save=True, schedule_check=True):
         self.check_for_updates_enabled = enabled
         # save setting to settings file
-        if save: self.save_settings({'check_for_updates_enabled': self.check_for_updates_enabled})
+        if save:
+            self.save_settings({'check_for_updates_enabled': self.check_for_updates_enabled})
         # also, schedule the next update check
-        self.schedule_next_update_check()
+        if schedule_check:
+            self.schedule_next_update_check()
 
     def lastCheck(self):
         return self.last_check
 
     def setLastCheck(self, last_check, save=True):
         self.last_check = util.ensure_datetime(last_check)
-        if save: self.save_settings({'last_check': self.last_check})
+        if save:
+            self.save_settings({'last_check': self.last_check})
+
 
     # ------------
 
@@ -302,11 +308,17 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
             if (self.ask_before_checking and not self.asked_before_checking):
                 # ask before we check.
-                if (self.ask_first_time() != True):
+                logger.debug("UpdateGenericGuiInteface: this is the first time. Let's ask the user "
+                             "if (s)he's cool with us auto-updating..")
+                answer = self.ask_first_time()
+                self.setCheckForUpdatesEnabled(answer, save=False);
+                self.asked_before_checking = True
+                self.save_settings({
+                    'asked_before_checking': True,
+                    'check_for_updates_enabled': answer,
+                    })
+                if (answer != True):
                     logger.debug("UpdateGenericGuiInterface: are told not to check for updates.");
-                    self.setCheckForUpdatesEnabled(False);
-                    self.asked_before_checking = True
-                    self.save_settings({'asked_before_checking': True})
                     return None
 
             rel_info = self.updater.check_for_updates()
@@ -324,6 +336,12 @@ class UpdateGenericGuiInterface(UpdateInterface):
             if self.ask_to_update(rel_info):
                 #
                 # yes, install update
+                #
+                # make sure we save our settings now in case we restart later
+                #
+                self.save_settings()
+                #
+                # And actually install the update.
                 #
                 self.updater.install_update(rel_info)
                 self.update_installed = True
@@ -357,9 +375,13 @@ class UpdateGenericGuiInterface(UpdateInterface):
 
     def schedule_next_update_check(self):
         if not self.check_for_updates_enabled:
-            logger.debug("UpdateGenericGuiInterface:Not scheduling update check because we were "
+            logger.debug("UpdateGenericGuiInterface: Not scheduling update check because we were "
                          "asked not to check for updates.")
             return
+
+        if self.is_currently_checking:
+            logger.debug("UpdateGenericGuiInteface: Not scheduling update check because we're currently "
+                         "checking for updates!")
 
         if (self.is_initial_delay):
             self.set_timeout_check(self.init_check_delay)
