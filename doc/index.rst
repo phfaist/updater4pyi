@@ -13,6 +13,7 @@ Contents:
 
    quickstart
    updater4pyi
+   credits-copyright
 
 
 Indices and tables
