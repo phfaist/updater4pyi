@@ -1,0 +1,24 @@
+.. Updater4Pyi documentation master file, created by
+   sphinx-quickstart on Sun Dec  7 16:56:21 2014.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
+
+Welcome to Updater4Pyi's documentation!
+=======================================
+
+Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+   quickstart
+   updater4pyi
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+

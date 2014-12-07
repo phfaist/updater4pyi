@@ -29,6 +29,15 @@
 #                                                                                     #
 #######################################################################################
 
+"""
+Set up a minimal logger. To integrate logging in your application, configure your Python
+`logging`_ as you wish. Updater4Pyi gets its logger by calling
+``logging.getLogger('updater4pyi')``, i.e. the Updater4Pyi's logger is called
+'updater4pyi'.
+
+.. _logging: https://docs.python.org/2/library/logging.html
+
+"""
 
 import logging
 
@@ -44,6 +53,10 @@ formatter = logging.Formatter('%(name)s - %(asctime)-15s\n\t%(levelname)s: %(mes
 
 
 def setup_logger(level=logging.INFO):
+    """
+    A utility function that you can call to set up a simple logging to the console. No
+    hassles.
+    """
     
     # create console handler
     ch = logging.StreamHandler();

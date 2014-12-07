@@ -29,6 +29,13 @@
 #                                                                                     #
 #######################################################################################
 
+"""
+Utilities to download files over secure HTTPS connections, with *server certificate
+verification*.
+
+See `Validate SSL certificates with Python <http://stackoverflow.com/q/1087227/1694896>`_
+and and `this solution <http://stackoverflow.com/a/14320202/1694896>`_ on Stack Overflow.
+"""
 
 import logging
 
@@ -45,11 +52,16 @@ from .upd_log import logger
 
 # -------------------------------
 
-CERT_FILE = util.resource_path('updater4pyi/cacert.pem');#'root.crt');
+CERT_FILE = util.resource_path('updater4pyi/cacert.pem');
 
 class ValidHTTPSConnection(httplib.HTTPConnection):
     """
-    HTTPS connection based on httplib.HTTPConnection, with certificate validation.
+    HTTPS connection based on httplib.HTTPConnection, with complete certificate validation
+    based on known root certificates packaged with the program.
+
+    The root certificate file is given in the module-level variable
+    :py:data:`CERT_FILE`. Note you may use :py:func:`util.resource_path` to get a file in
+    the pyinstaller bundle.
     """
 
     default_port = httplib.HTTPS_PORT
@@ -75,6 +87,10 @@ class ValidHTTPSConnection(httplib.HTTPConnection):
 
 
 class ValidHTTPSHandler(urllib2.HTTPSHandler):
+    """
+    A HTTPS urllib2 handler using :py:class:`ValidHttpsConnection`, i.e. with correct
+    server certificate validation.
+    """
 
     def https_open(self, req):
             return self.do_open(ValidHTTPSConnection, req)
@@ -82,5 +98,11 @@ class ValidHTTPSHandler(urllib2.HTTPSHandler):
 
 
 url_opener = urllib2.build_opener(ValidHTTPSHandler)
+"""
+The URL opener obtained with `urllib2.build_opener`, with valid HTTPS server certificate
+validation.
+"""
+
+# add a User-agent header
 url_opener.addheaders = [('User-agent', 'Updater4Pyi-SoftwareUpdater %s'%(upd_version.version_str))]
 

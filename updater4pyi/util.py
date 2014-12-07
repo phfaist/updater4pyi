@@ -29,6 +29,10 @@
 #                                                                                     #
 #######################################################################################
 
+"""
+A collection of various utilities.
+"""
+
 import sys
 import os
 import os.path
@@ -445,7 +449,14 @@ def _parse_version_parts(s):
     yield '*final'  # ensure that alpha/beta/candidate are before final
 
 def parse_version(s):
-    """Convert a version string to a chronologically-sortable key
+    """
+    Convert a version string to a chronologically-sortable key
+
+    This function is based on code from `setuptools
+    <https://bitbucket.org/pypa/setuptools/src/353a4270074435faa7daa2aa0ee480e22e505f53/pkg_resources.py?at=default>`_.
+    (I didn't find any license text to copy from that project, but on `PyPI
+    <https://pypi.python.org/pypi/setuptools>`_ it states that the license is 'PSF or
+    `ZPL <http://opensource.org/licenses/ZPL-2.0>`_'.)
 
     This is a rough cross between distutils' StrictVersion and LooseVersion;
     if you give it versions that would work with StrictVersion, then it behaves
@@ -561,6 +572,10 @@ def which_clear_cache():
 
 def which(name, flags=os.X_OK, usecache=True, firstresult=True):
     """Search PATH for executable files with the given name.
+
+    This function is based on code from
+    `twisted <http://twistedmatrix.com/trac/browser/tags/releases/twisted-8.2.0/twisted/python/procutils.py>`_
+    (see copyright notice in source code of this function).
 
     On newer versions of MS-Windows, the PATHEXT environment variable will be
     set to the list of file extensions for files considered executable. This

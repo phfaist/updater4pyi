@@ -61,7 +61,24 @@ FileToUpdate = collections.namedtuple('FileToUpdate', ('fn', 'reltype', 'executa
 
 def determine_file_to_update():
     """
-    Returns a FileToUpdate(fn=.., reltype=.., executable=...) named tuple.
+    Inspects the program currently running, and determines the location of the file one
+    should replace in the event of a software update.
+
+    Returns a named tuple `FileToUpdate(fn=.., reltype=.., executable=...)`. The values
+    are:
+
+        - `fn`: the actual file we should update. This could be a directory in the case of
+          a onedir PyInstaller package. For a MAC OS X bundle, it is the `XYZ.app` file.
+          
+        - `reltype`: the release type we have. This may be one of
+          :py:const:`upd_defs.RELTYPE_EXE`, :py:const:`upd_defs.RELTYPE_ARCHIVE`,
+          :py:const:`upd_defs.RELTYPE_BUNDLE_ARCHIVE`.
+
+        - `executable`: the actual executable file. This may be different from `fn`, for
+          example in Mac OS X bundles, where `executable` is the actual file being
+          executed within the bundle.
+
+    .. _PyInstaller: http://www.pyinstaller.org/
     """
     
     executable = sys.executable
@@ -119,6 +136,18 @@ def get_updater():
 
 
 class Updater(object):
+    """
+    The main Updater object.
+
+    This class is responsible for actually checking for updates and performing the
+    software update.
+
+    It does not take care of scheduling the checks, however. That's done with an
+    UpdaterInterface.
+
+    This class needs to be specified a *source* for updates. See
+    :py:class:`upd_source.UpdateSource`.
+    """
     def __init__(self, current_version, update_source):
         """
         Instantiates an `Updater`, with updates provided by the source `update_source` (a
@@ -126,8 +155,6 @@ class Updater(object):
 
         The `current_version` is the current version string of the software, and will
         be provided to the `update_source`.
-
-        ... doc here ...
         """
 
         # sys._MEIPASS seems to be set all the time, even we don't self-extract.
@@ -145,12 +172,21 @@ class Updater(object):
 
 
     def update_source(self):
+        """
+        Return the source given to the constructor.
+        """
         return self._update_source
 
     def current_version(self):
+        """
+        Return the current version of the running program, as given to the constructor.
+        """
         return self._current_version
 
     def file_to_update(self):
+        """
+        Return the file one should update. See :py:func:`determine_file_to_update`.
+        """
         return self._file_to_update
 
 
@@ -161,9 +197,10 @@ class Updater(object):
         """
         Perform an update check.
 
-        Queries the source for possible updates, which matches our system. If a software update
-        is found, then a `upd_source.BinReleaseInfo` object is returned, describing the software
-        update. Otherwise, if no update is available, `None` is returned.
+        Queries the source for possible updates, which matches our system. If a software
+        update is found, then a :py:class:`upd_source.BinReleaseInfo` object is returned,
+        describing the software update. Otherwise, if no update is available, `None` is
+        returned.
         """
         
         releases = self._update_source.get_releases(newer_than_version=self._current_version)
@@ -200,12 +237,17 @@ class Updater(object):
         return None
 
 
+
     # ------------------------------------------
+    # methods that perform the software update
+    # ------------------------------------------
+    
 
     SPECIAL_ZIP_FILES = ('_updater4pyi_metainf.json',
                          '_METAINF',
                          )
 
+    # internal
     class _ExtractLocation(object):
         def __init__(self, filetoupdate, needs_sudo, **kwargs):
             self.filetoupdate = filetoupdate
@@ -248,7 +290,21 @@ class Updater(object):
             return self.extractto
 
 
+    # ------------------------------------------------
+    # Install a Given Update
+    # ------------------------------------------------
     def install_update(self, rel_info):
+        """
+        Install a given update. `rel_info` should be a
+        :py:class:`upd_source.BinReleaseInfo` returned by :py:meth:`check_for_updates`.
+
+        The actual updates are downloaded by calling :py:meth:`download_file`. You may
+        overload that function if you need to customize the download process. You may also
+        override :py:meth:`verify_download` to implement some download integrity verification.
+
+        This function does not return anything. If an error occurred,
+        :py:exc:`upd_defs.Updater4PyiError` is raised.
+        """
 
         # first, save the file locally.
         tmpfile = tempfile.NamedTemporaryFile(mode='w+b', prefix='upd4pyi_tmp_', dir=None, delete=False)
@@ -265,9 +321,8 @@ class Updater(object):
             else:
                 raise Updater4PyiError('Error: %s' %(str(e)))
 
-        # TODO: add support for download verifyer (MD5/SHA or GPG signature) ??
-        # ...
-        # for now, this simple reimplementable function.
+        #
+        # Verify download integrity
         #
         if (not self.verify_download(rel_info, tmpfile)):
             logger.warning("Failed to download %s : download verification failed.", url);
@@ -518,6 +573,19 @@ class Updater(object):
 
 
     def download_file(self, theurl, fdst):
+        """
+        Download the file given at location `theurl` to the destination file `fdst`.
+
+        You may reimplement this function to customize the download process. Check out
+        `upd_downloader.url_opener` if you want to download stuff from an HTTPS url, it
+        may be useful.
+
+        The default implementation downloads the file with the `upd_downloader` utility
+        which provides secure downloads with certificate validation for HTTPS downloads.
+
+        This function should return nothing. If an error occurs, this function should
+        raise an `IOError`.
+        """
 
         logger.debug("fetching URL %s to temp file %s ...", theurl, util.ignore_exc(lambda : fdst.name))
 
@@ -530,6 +598,26 @@ class Updater(object):
 
 
     def verify_download(self, rel_info, tmpfile):
+        """
+        Verify the integrity of the downloaded file. Return `True` if the download
+        succeeded or `False` if not.
+
+        Arguments:
+
+            - `rel_info` is the release information as a
+              :py:class:`upd_source.BinReleaseInfo` instance, as given to
+              :py:meth:`install_update`.
+
+            - `tmpfile` is a python :py:class:`tempfile.NamedTemporaryFile` instance
+              where the file was downloaded. This function should in principle check
+              the validity of the contents of this file.
+
+        You may reimplement this function to implement integrity check. The default
+        implementation does nothing and returns `True`.
+
+        Don't raise arbitrary exceptions here because they might not be caught. You may
+        raise :py:exc:`upd_defs.Updater4PyiError` for serious errors, though.
+        """
         # TODO: add support for GPG signing, MD5/SHA-1 checksum checks etc... ???
         # Note: might not be necessary with secure https downloads with checked certificate
         return True
@@ -540,6 +628,12 @@ class Updater(object):
     # utility: restart this application
 
     def restart_app(self):
+        """
+        Utility to restart the application. This is meant for graphical applications which
+        start in the background.
+
+        The application exit is done by calling ``sys.exit(0)``.
+        """
 
         exe = self._file_to_update.executable
 

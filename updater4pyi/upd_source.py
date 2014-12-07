@@ -29,6 +29,20 @@
 #                                                                                     #
 #######################################################################################
 
+"""
+This module defines how Updater4Pyi accesses *sources*, i.e. how information about the
+software updates are queried.
+
+The base class is :py:class:`UpdateSource`. Check out the *github.com releases* source
+:py:class:`UpdateGithubRelasesSource`. For testing, you may want to try out
+:py:class:`UpdateLocalDirectorySource`.
+
+Information about individual releases are provided as :py:class:`BinReleaseInfo` objects.
+
+Some sources allow to determine information about releases from the file name. The class
+:py:class:`ReleaseInfoFromNameStrategy` is provided for this purpose.
+"""
+
 
 import sys
 import re
@@ -51,10 +65,52 @@ from .upd_log import logger
 
 
 class BinReleaseInfo(object):
+    """
+    A description of a release. This includes the release type (executable, archive,
+    archived Mac OS X bundle), the URL at which it can be downloaded, the platform, the
+    version etc.
+
+    Update Sources (see :py:class:`UpdateSource`) return `BinReleaseInfo` objects to
+    describe available releases. You may even reimplement this class if you need specific
+    needs for determining release information. Note that within Updater4Pyi internals, all
+    standard fields (version, filename, url, reltype and platform) are always queried
+    using the accessor functions (:py:meth:`get_version`, :py:meth:`get_filename`,
+    :py:meth:`get_url`, etc.), so you could even determine that information dynamically if
+    you really wanted to do complicated things.
+
+    You may also want to check out :py:class:`ReleaseInfoFromNameStrategy` for
+    automatically determining release information from the file name. It's also highly
+    customizable.
+
+    Arbitrary information about the release may be stored in this class, too.
+    """
     def __init__(self, version=None, filename=None, url=None,
                  reltype=RELTYPE_UNKNOWN,
                  platform=None,
                  **kwargs):
+        """
+        Construct a `BinReleaseInfo` object.
+
+        If `version` is not set, a :py:exc:`ValueError` is raised.
+
+        The `filename` is the name of the release file. It is not necessarily (yet)
+        internally used by :py:class:`upd_core.Updater`.
+
+        The `url` should be the location at which this file can be downloaded (the URL
+        should be given as a string).
+
+        The `reltype` should be one of :py:const:`upd_defs.RELTYPE_UNKNOWN`,
+        :py:const:`upd_defs.RELTYPE_EXE`, :py:const:`upd_defs.RELTYPE_ARCHIVE` or
+        :py:const:`upd_defs.RELTYPE_BUNDLE_ARCHIVE`.
+
+        The `platform` should correspond to the values returned by
+        :py:func:`util.simple_platform`. (The :py:class:`~upd_core.Updater` will compare
+        this `platform` with the current platform determined with
+        :py:func:`util.simple_platform`).
+
+        Any additional keyword arguments are interpreted as additional information about
+        the release; they are stored as attributes to the constructed instance.
+        """
 
         if not version:
             raise ValueError("BinReleaseInfo(): version is not set!")
@@ -70,18 +126,33 @@ class BinReleaseInfo(object):
 
 
     def get_version(self):
+        """
+        Return the `version` set in the constructor.
+        """
         return self.version
 
     def get_filename(self):
+        """
+        Return the `filename` set in the constructor.
+        """
         return self.filename
 
     def get_url(self):
+        """
+        Return the `url` set in the constructor.
+        """
         return self.url
 
     def get_reltype(self):
+        """
+        Return the `reltype` set in the constructor.
+        """
         return self.reltype
 
     def get_platform(self):
+        """
+        Return the `platform` set in the constructor.
+        """
         return self.platform
 
     def __repr__(self):
@@ -101,10 +172,17 @@ class UpdateSource(object):
     """
     Base abstract class for an update source.
 
-    Subclasses should reimplement `get_releases()`.
+    An update source takes care of accessing a e.g. repository or online server, and
+    querying for available updates. It should be capable of returning information about
+    available releases in the form of :py:class:`BinReleaseInfo` objects.
+
+    Subclasses should reimplement the main function `get_releases()`.
     """
     
     def __init__(self, *args, **kwargs):
+        """
+        Constructs an `UpdateSource` object.
+        """
         self.current_version = None
         self.file_to_update = None
         self.release_filters = []
@@ -112,14 +190,29 @@ class UpdateSource(object):
 
 
     def add_release_filter(self, filt):
+        """
+        Adds a *release filter* to ignore some releases.
+
+        `filt` must be a callable which takes a positional argument, the release
+        information object (:py:class:`BinReleaseInfo` object). It should return `True`
+        for keeping the release or `False` for ignoring it.
+
+        This could be, for example, to ignore beta releases.
+
+        It is the responsibility of the subclass to test release filters, for example
+        using the :py:meth:`test_release_filters` helper function.
+        """
         self.release_filters.append(filt)
 
     def test_release_filters(self, relinfo):
         """
-        Returns `True` if `relinfo` should be included in the releases given the installed filters,
-        otherwise `False`. Note that the platform and the version selection are not implemented by
-        filters. Filters are meant to choose between different editions, or to filter out/include
-        beta unstable releases.
+        Returns `True` if `relinfo` should be included in the releases given the installed
+        filters, otherwise `False`. Note that the platform and the version selection are
+        not implemented by filters. Filters are meant to choose between different
+        editions, or to filter out/include beta unstable releases.
+
+        It is the responsibility of the subclass to test release filters for example with
+        this function.
         """
         for f in self.release_filters:
             if not f(relinfo):
@@ -131,12 +224,18 @@ class UpdateSource(object):
 
     def get_releases(self, newer_than_version=None, **kwargs):
         """
-        Should return a list of `BinReleaseInfo` of available releases. If `newer_than_version`
-        argument is provided, then this function should ignore releases older or equal to the
-        given argument.
+        Should return a list of :py:class:`BinReleaseInfo` describing available
+        releases. If `newer_than_version` argument is provided, then this function should
+        ignore releases older or equal to the given argument. (Check out
+        :py:func:`util.parse_version` to parse and compare versions.)
 
-        Note that for filters to work, the subclass must explicitly test each candidate release
-        with `test_release_filters()`, and ignore the release if that function returns `False`.
+        Note that for filters to work, the subclass must explicitly test each candidate
+        release with `test_release_filters()`, and ignore the release if that function
+        returns `False`.
+
+        This function should return `None` if no release information could be obtained
+        (e.g. not connected to the internet). This function should return an empty list if
+        no new updates are available.
         """
         raise NotImplementedError
 
@@ -170,7 +269,7 @@ def _make_bin_release_info(m, lst, innerkwargs):
         else:
             val = v
             
-        if (isinstance(val, IgnoreArgument)):
+        if (val is IgnoreArgument or isinstance(val, IgnoreArgument)):
             continue
         
         args[k] = val
@@ -181,6 +280,76 @@ def _make_bin_release_info(m, lst, innerkwargs):
 
 
 def relpattern(re_pattern, reltype=RELTYPE_UNKNOWN, platform=None, **kwargs):
+    """
+    Construct a rule to set release information depending on filename and further
+    attributes.
+
+    The rule applies to all releases whose `filename` matches the given regex pattern
+    `re_pattern`. The latter should be either a precompiled regexp pattern (with
+    `re.compile`) or given as a string.
+
+    All further arguments specify which rules to apply to set attributes for this release
+    information.
+
+    The release information attribute rules are applied as follows:
+
+        1. the rules given as additional keyword arguments to `relpattern` are processed;
+
+        2. the values for `filename` and `url` given to
+           :py:meth:`~ReleaseInfoFromNameStrategy.get_release_info` are set;
+
+        3. the rules for `platform` and `reltype` given to this function are processed;
+
+        4. the values given as additional keyword arguments to
+           :py:meth:`~ReleaseInfoFromNameStrategy.get_release_info` are set.
+
+    (Not sure why I can justify this order here, but I'm afraid of changing it.)
+
+    A *rule* for setting an attribute may be one of the following:
+
+        - a fixed value: the fixed value is set to that attribute
+
+        - a python callable: the callable is called (no, you don't say?) and its return
+          value is used as the value of the attribute. If the callable returned
+          `IgnoreArgument`, then the rule is ignored (no one would have guessed). The
+          callable may accept any combination of the following keyword arguments:
+              
+              * 'm' is the regex match object form the regex that matched the filename,
+                and may be used to extract groups for example;
+
+              * 'd' is a dictionary of values passed as additional keyword arguments to
+                :py:meth:`~ReleaseInfoFromNameStrategy.get_release_info`;
+
+              * 'x' is the dictionary of attributes constructed so far (by the given values
+                and rules being processed).
+
+    The following pattern will test for a filename of the form
+    'filename-VERSION-PLATFORM.EXTENSION', 'filename-VERSION.EXTENSION',
+    'filename-PLATFORM.EXTENSION' or 'filename.EXTENSION'. The information corresponding
+    to VERSION and PLATFORM are set if they were found in the filename, otherwise we
+    assume they'll be figured out by some other means. The release type (`reltype`) is
+    guessed depending on the extension of the filename and the platform. The example is::
+    
+        pattern1 = relpattern(
+            r'(-(?P<version>\d+[\w.]+))?(-(?P<platform>macosx|linux|win))?\.(?P<ext>[a-zA-Z]+)$',
+            version=lambda m: m.group('version') if m.group('version') else IgnoreArgument,
+            platform=lambda m: m.group('platform') if m.group('platform') else IgnoreArgument,
+            reltype=lambda m, x: guess_reltype(m, x)
+            )
+
+        ...
+
+        def guess_reltype(m, x):
+            ext = m.group('ext').lower()
+            if ext == 'zip' and x.get('platform', '') == 'macosx':
+                return RELTYPE_BUNDLE_ARCHIVE
+            if ext in ('exe', 'bin', 'run'):
+                return RELTYPE_EXE
+            if ext in ('zip', 'tgz'):
+                return RELTYPE_ARCHIVE
+            return IgnoreArgument
+    
+    """
     # fix the values with default parameters
     return (re_pattern,
             (lambda m, filename, url, version=None,
@@ -202,14 +371,52 @@ class ReleaseInfoFromNameStrategy(object):
     """
     Base class for a strategy to identify release details from a file name.
 
-    Some sources need such a stategy, such as `UpdateLocalDirectorySource` and
-    `UpdateGithubRelasesSource`.
+    The information about a specific release (as a :py:class:`BinReleaseInfo` object) can
+    be obtained by calling :py:meth:`get_release_info` with a filename and any additional
+    information to include in the `BinReleaseInfo` object.
+
+    Some sources need such a stategy, such as :py:class:`UpdateLocalDirectorySource` and
+    :py:class:`UpdateGithubRelasesSource`.
+
+    The `patterns` (see constructor) should be a list (or tuple) of patterns and rules
+    constructed with :py:func:`relpattern`. The patterns are tested in the given order
+    until a match is found. See :py:func:`relpattern` on information how to construct
+    these rules.
+
+    Actually, each pattern (see return value of :py:func:`relpattern`) is a 2-element
+    tuple `(regexpattern, callable)`. The `regexpattern` may be a precompiled regex object
+    (i.e. with `re.compile`), or it may be a string, in which case it is compiled with the
+    `re.IGNOREFLAGS` set. The `callable` is any python callable should have the signature
+    `callable(m, filename, url, **kwargs)` accepting a regexp match object, the file name,
+    the URL at which the release can be accessed, and any keyword arguments that should be
+    passed to the :py:class:`BinReleaseInfo` constructor. The callable should return a new
+    :py:class:`BinReleaseInfo` instance.
     """
     def __init__(self, patterns, *args, **kwargs):
+        """
+        Construct a `ReleaseInfoFromNameStrategy` object from a list of patterns. See the
+        class description above and the documentation of :py:func:`relpattern` for
+        information on how to construct these patterns.
+
+        `*args` and `**kwargs` are simply passed on to the base class untouched.
+        """
         self.patterns = [(_maybe_compile_re(r), cal) for (r, cal) in patterns]
         super(ReleaseInfoFromNameStrategy, self).__init__(*args, **kwargs)
 
     def get_release_info(self, filename, url, **kwargs):
+        """
+        Return a :py:class:`BinReleaseInfo` instance from information extracted from the
+        filename (and possibly further information provided by url and keyword arguments).
+
+        Additional arguments are passed to the `BinReleaseInfo` constructor
+        untouched. Patterns may refer to these additional fields to help identify the
+        release information.
+
+        The list of patterns (see constructor) are tested in order until a match is
+        found. At that point, the release information is compiled and returned.
+
+        If none of the patterns matched, then `None` is returned.
+        """
 
         logger.debug("Trying to match filename %r to get info. kwargs=%r", filename, kwargs)
         
@@ -244,7 +451,7 @@ def _guess_plat(m, d, default=None):
         relfile_label = d.get('filename', '');
 
     if relfile_label is None or not len(relfile_label):
-        return default if default is not None else IgnoreArgument()
+        return default if default is not None else IgnoreArgument
 
     if re.search(r'mac\s*os\s*x', relfile_label, re.I):
         return 'macosx'
@@ -255,7 +462,7 @@ def _guess_plat(m, d, default=None):
 
     if (default is not None):
         return default
-    return IgnoreArgument()
+    return IgnoreArgument
 
 def _guess_reltype(m, d, x, default=None):
     if (x.get('platform', '') == 'macosx'):
@@ -269,7 +476,7 @@ def _guess_reltype(m, d, x, default=None):
 
     if (default is not None):
         return default
-    return IgnoreArgument()
+    return IgnoreArgument
 
 
 _RX_VER = r'-(?P<version>\d+[\w.]+)'
@@ -279,25 +486,25 @@ _RX_PLAT_OPT = '('+_RX_PLAT+')?'
 
 _default_naming_strategy_patterns = (
 #    relpattern(_RX_VER_OPT+r'-macosx\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
-#               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+#               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument,
 #               platform='macosx',
 #               reltype=RELTYPE_BUNDLE_ARCHIVE),
     relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'(?P<onedir>-(onedir|dir|dist))?\.(tar(\.gz|\.bz(ip)?2?|\.Z)|tgz|tbz2?|zip)$',
-               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument,
                platform=_guess_plat,
                reltype=lambda m, d, x: _guess_reltype(m, d, x, default=RELTYPE_ARCHIVE)),
     relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'\.exe$',
-               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument,
                platform=lambda m, d: _guess_plat(m, d, default='win'),
                reltype=RELTYPE_EXE),
     relpattern(_RX_VER_OPT+_RX_PLAT_OPT+r'(\.(bin|run))?$',
-               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument(),
+               version=lambda m: m.group('version') if m.group('version') else IgnoreArgument,
                platform=lambda m, d: _guess_plat(m, d, default='linux'),
                reltype=RELTYPE_EXE),
     )
 
 # maybe e.g.
-# UpdateInfoFromNameRegexpStrategy(
+# UpdateInfoFromNameStrategy(
 #     (relpattern(r'-macosx-app\.zip$', reltype=RELTYPE_BUNDLE_ARCHIVE, platform='macosx'),
 #      relpattern(r'-(?P<platform>linux|win|macosx)\.zip$', reltype=RELTYPE_ARCHIVE, platform='macosx'),
 #      relpattern(r'-linux.bin$', reltype=RELTYPE_EXE, platform='linux'),
@@ -314,8 +521,12 @@ _default_naming_strategy_patterns = (
 
 
 
-# simple filter for including/not including developemnt releases
 class UpdateSourceDevelopmentReleasesFilter(object):
+    """
+    Simple filter for including/not including developemnt releases.
+
+    You can specify a class instance to :py:meth:`UpdateSource.add_release_filter`.
+    """
     def __init__(self, include_devel_releases=False, regexname=None):
         self.include_devel_releases = include_devel_releases
 
@@ -344,9 +555,8 @@ class UpdateLocalDirectorySource(UpdateSource):
     Updates will be searched for in a local directory. Useful for debugging.
     
     Will check in the given `source_directory` directory for updates. Files should be organized
-    in subdirectories which should be version names, e.g.
+    in subdirectories which should be version names, e.g.::
 
-    ::
       1.0/
         binary-macosx[.zip]
         binary-linux[.zip]
@@ -357,7 +567,8 @@ class UpdateLocalDirectorySource(UpdateSource):
         binary-win[.exe|.zip]
       ...
 
-    This updater source is mostly for debugging the module `updater4pyi`.
+    This updater source is mostly for debugging purposes. There's no real-life utility I
+    can see...
     """
     
     def __init__(self, source_directory, naming_strategy=None, *args, **kwargs):
@@ -451,7 +662,16 @@ class UpdateGithubReleasesSource(UpdateSource):
     
     def __init__(self, github_user_repo, naming_strategy=None, *args, **kwargs):
         """
-        `github_user_repo` is a string literal `'user/repo_name'`, e.g. `'phfaist/bibolamazi'`.
+        Arguments:
+            
+            - `github_user_repo`: a string literal `'user/repo_name'`,
+              e.g. `'phfaist/bibolamazi'`.
+
+            - `naming_strategy`: the naming strategy to use. This should a
+              :py:class:`ReleaseInfoFromNameStrategy` instance, or can be left as `None`
+              to use the default patterns. It may also be a list of patterns, which will
+              be used as the argument to a new :py:class:`ReleaseInfoFromNameStrategy`
+              instance.
         """
 
         if (naming_strategy is None):
@@ -466,6 +686,26 @@ class UpdateGithubReleasesSource(UpdateSource):
 
 
     def get_releases(self, newer_than_version=None, **kwargs):
+        """
+        Reimplemented from :py:meth:`UpdateSource.get_releases`.
+
+        The information is retrieved using the github API, for example at
+        `<https://api.github.com/repos/phfaist/bibolamazi/releases>`_. This returns a JSON
+        dictionary with information on the various releases. Each *release* has fields and
+        a list of *assets*. (See `Github API Documentation`_.)
+
+        Additional information such as the github release label is provided in each
+        `BinReleaseInfo` instance::
+
+            rel_name             = the 'name' field of the release JSON dictionary
+            relfile_label        = the 'label' field of the release JSON dictionary
+            rel_description      = the 'body' field of the release JSON dictionary
+            rel_tag_name         = the 'tag_name' field of the release JSON dictionary
+            rel_html_url         = the 'html_url' field of the release JSON dictionary
+            relfile_content_type = the 'content_type' field of the asset JSON dictionary
+
+        .. _Github API Documentation: https://developer.github.com/v3/repos/releases/
+        """
 
         # get repo releases.
 

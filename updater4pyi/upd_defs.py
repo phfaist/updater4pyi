@@ -36,6 +36,14 @@
 # our exception class
 
 class Updater4PyiError(Exception):
+    """
+    An exception class used to signify an error in the installation of a software update,
+    for example.
+
+    However, if you're not digging into the internals of the update interface, you
+    probably won't even have to bother with catching these. See also
+    :py:class:`~upd_core.Updater` and :py:class:`~upd_iface.UpdateInterface`.
+    """
     def __init__(self, msg):
         self.updater_msg = msg
         Exception.__init__(self, 'Software Updater Error: '+msg);
@@ -49,8 +57,23 @@ class Updater4PyiError(Exception):
 
 
 RELTYPE_UNKNOWN = 0
+"""
+Unknown release type.
+"""
+
 RELTYPE_EXE = 1
+"""
+A single executable. For example, a MS Windows .exe file or a linux executable.
+"""
+
 RELTYPE_ARCHIVE = 2
+"""
+An archive containing several files. The archive should be extracted into a directory.
+"""
+
 RELTYPE_BUNDLE_ARCHIVE = 3
+"""
+An archive containing a Mac OS X application bundle.
+"""
 
 

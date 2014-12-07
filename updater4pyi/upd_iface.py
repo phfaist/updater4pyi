@@ -66,6 +66,10 @@ class UpdateInterface(object):
 
 
 class UpdateConsoleInterface(UpdateInterface):
+    """
+    A very simple :py:class:`UpdateInterface` implementation that checks for updates each
+    time the program is run. This is mostly meant for debugging purposes.
+    """
     def __init__(self, updater, ask_before_checking=False, **kwargs):
         super(UpdateConsoleInterface, self).__init__(updater=updater, **kwargs)
         self.ask_before_checking = ask_before_checking

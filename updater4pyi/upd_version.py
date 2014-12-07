@@ -31,4 +31,6 @@
 
 
 version_str = '0.6'
-
+"""
+The current version string.
+"""
