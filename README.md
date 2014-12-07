@@ -17,6 +17,13 @@ system (wxWidgets ...) should be a matter of several lines of code.
 
 
 
+Full Documentation
+==================
+
+Read the full documentation (being constructed) at
+<http://updater4pyi.readthedocs.org/>.
+
+
 
 Installation & Usage
 ====================
