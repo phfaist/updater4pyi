@@ -128,11 +128,6 @@ def determine_file_to_update():
 
 # ------------------------------------------------------------------------
 
-_updater = None
-
-def get_updater():
-    return _updater
-
 
 
 class Updater(object):
