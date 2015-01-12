@@ -107,3 +107,10 @@ At the moment, there are the following interfaces for updates:
   - A PyQt4 interface is provided based on the generic GUI interface mentioned
     in the previous point.
 
+
+Contributing
+============
+
+I won't have a ton of time to maintain this project, so if you feel like contributing
+(in particular writing new sources or interfaces, for example), don't hesitate to send
+me a pull request or to contact me.
